@@ -1,0 +1,321 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to a calendar-flavored semantic versioning scheme
+(`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
+
+## [Unreleased]
+
+### Pending
+
+- Code-review hardening: `mergeRetryPolicy` is the source of truth for
+  retry overrides (omits `undefined` so partial overrides cannot
+  NaN-poison the loop); pre-epoch `since` values rejected in
+  `musubi_recent`; `musubi_get` now enforces the identity boundary
+  before the wire is hit; `musubi_recall` no longer falls back to
+  `console.warn`; Windows lease guard returns "alive" to avoid
+  double-write; abort-listener race in `#sleepUnlessAborted` closes
+  on `signal.aborted` recheck inside the listener; `PLANE_PATH`
+  consolidated in `retrieval/targets.ts`; topic array bounded to 32
+  entries of 256 chars; one-shot operator log on dead-letter rows;
+  cleanup error surfaced in doctor result; `biome.json` schema URL
+  bumped to 2.5.7.
+- More code-review hardening, post-2.0.11: dead-letter `last_error`
+  now includes `row=<id>` for `/musubi-status` correlation;
+  `musubi_remember` dead path surfaces partial `object_id` when the
+  row reached `accepted` before failing the readback; multi-target
+  `expectedOwner` invariant asserted in `tools/search.ts` so a future
+  multi-presence build cannot let a second owner slip past the
+  identity-boundary gate; exponential poll backoff (30→50→100ms,
+  capped) in `awaitTerminal` so long waits do not busy-loop;
+  once-per-process deprecation warning suppression with rewritten
+  first-warns-then-quiet test.
+
+## [2.0.11](https://github.com/ericmey/openclaw-musubi/compare/v2.0.10...v2.0.11) (2026-09-21)
+
+
+### Bug Fixes
+
+* load on OpenClaw 2026.9.4 without getGlobalPluginRegistry ([#75](https://github.com/ericmey/openclaw-musubi/issues/75)) ([71fdf38](https://github.com/ericmey/openclaw-musubi/commit/71fdf38f831cf4c110b040a10fbd1606dbb91a07))
+
+## [2.0.10](https://github.com/ericmey/openclaw-musubi/compare/v2.0.9...v2.0.10) (2026-09-21)
+
+
+### Bug Fixes
+
+* **capture:** skip configured session-key globs ([#72](https://github.com/ericmey/openclaw-musubi/issues/72)) ([64cd388](https://github.com/ericmey/openclaw-musubi/commit/64cd388510cd68e67b86de5a1b2773302bc2784c))
+* **delivery:** trust persisted capture dedup evidence ([#74](https://github.com/ericmey/openclaw-musubi/issues/74)) ([52f2afe](https://github.com/ericmey/openclaw-musubi/commit/52f2afedb654b1162402c987ab249ad9ac5b57dd))
+
+## [2.0.9](https://github.com/ericmey/openclaw-musubi/compare/v2.0.8...v2.0.9) (2026-09-21)
+
+
+### Bug Fixes
+
+* **delivery:** backdate the died_at_ms backfill past the alert window ([#69](https://github.com/ericmey/openclaw-musubi/issues/69)) ([7710f2d](https://github.com/ericmey/openclaw-musubi/commit/7710f2d9fd24658e9bf0214faf171be055cb2826))
+
+## [2.0.8](https://github.com/ericmey/openclaw-musubi/compare/v2.0.7...v2.0.8) (2026-09-20)
+
+
+### Bug Fixes
+
+* **capture:** keep oversized turns instead of dead-lettering them ([bbca6f5](https://github.com/ericmey/openclaw-musubi/commit/bbca6f5c1e5f8f22120cdeb6a23bf6cbfe6d608d))
+* **capture:** replace unpaired surrogates when slicing to the byte ceiling ([3bdb2b5](https://github.com/ericmey/openclaw-musubi/commit/3bdb2b5d8ae7418faeff8255d418e595f6385ed2))
+* **client,recent:** address Copilot review on [#64](https://github.com/ericmey/openclaw-musubi/issues/64) ([6cacdd5](https://github.com/ericmey/openclaw-musubi/commit/6cacdd540c30981ac1b2127eee3c301a2f391d53))
+* **client:** honor caller cancellation, bound Retry-After to the server window ([5824138](https://github.com/ericmey/openclaw-musubi/commit/5824138ee7e884c0f850a4ba76cb080629c598f8))
+* **delivery:** backfill died_at_ms on every migration pass ([ec99cbe](https://github.com/ericmey/openclaw-musubi/commit/ec99cbef009806300660f3c720456df737a47823))
+* **delivery:** dead-letter unknown failures, stop latching degraded forever ([3d01ed5](https://github.com/ericmey/openclaw-musubi/commit/3d01ed5469dab39e37772694d4ac5c19481046df))
+* **deps:** clear 8 dev-scope GHSA advisories (fast-uri, hono, vitest) ([1972e13](https://github.com/ericmey/openclaw-musubi/commit/1972e133d575b1e926915483d10fb1b53ae792fa))
+* **presence:** remove unreachable env-var substitution ([cc9f694](https://github.com/ericmey/openclaw-musubi/commit/cc9f69499f2253d30cf6750965864228c9f4cf55))
+* **recent:** use server-side recent mode so filters cannot miss matches ([7e6c13f](https://github.com/ericmey/openclaw-musubi/commit/7e6c13f1e432519b5f058b23093ef49e4210ed03))
+* **search:** bound date-enrichment fan-out, surface truncated content ([371c1e3](https://github.com/ericmey/openclaw-musubi/commit/371c1e3da9e364e8d305145ffe34ee18ee0f4ba3))
+
+## [2.0.7](https://github.com/ericmey/openclaw-musubi/compare/v2.0.6...v2.0.7) (2026-08-14)
+
+
+### Bug Fixes
+
+* **deps:** override transitive undici to 8.9.0 (5 GHSA alerts, dev-scope) ([#57](https://github.com/ericmey/openclaw-musubi/issues/57)) ([1740bad](https://github.com/ericmey/openclaw-musubi/commit/1740badedf206ec36174caf18a24cfdea2fd62ac))
+
+## [2.0.6](https://github.com/ericmey/openclaw-musubi/compare/v2.0.5...v2.0.6) (2026-08-14)
+
+
+### Bug Fixes
+
+* **config:** CLI preview contexts (`openclaw doctor`, `openclaw plugins inspect`) no longer report `invalid plugin config at /core/token: Expected string` for healthy configs. Token fields now accept OpenClaw's exact unresolved `SecretRef` shape (`{ source: "env" | "file" | "exec", provider, id }`); with unresolved refs the plugin logs one info line and registers nothing (inactive preview by design). Malformed references (unknown `source`, missing or blank/whitespace-only `provider`/`id`, extra properties) still fail registration loudly, as do blank token strings, and `${...}` placeholder strings remain a hard refusal. ([#55](https://github.com/ericmey/openclaw-musubi/issues/55)) ([864742c](https://github.com/ericmey/openclaw-musubi/commit/864742c29d630f5aeaa588cd6dccb3baa3eb8c9e))
+
+## [2.0.5](https://github.com/ericmey/openclaw-musubi/compare/v2.0.4...v2.0.5) (2026-08-12)
+
+
+### Bug Fixes
+
+* **memory:** stop wildcard-403 recall outages, dedup dead-letters, heartbeat noise ([#52](https://github.com/ericmey/openclaw-musubi/issues/52)) ([776a787](https://github.com/ericmey/openclaw-musubi/commit/776a7870c2b510360de1c2b513d20d5a8a48ff49))
+
+## [2.0.4](https://github.com/ericmey/openclaw-musubi/compare/v2.0.3...v2.0.4) (2026-08-08)
+
+
+### Bug Fixes
+
+* **memory:** preserve source chronology in recall ([7509227](https://github.com/ericmey/openclaw-musubi/commit/7509227df3d2db27998414570e2f508686499638))
+
+## [2.0.3](https://github.com/ericmey/openclaw-musubi/compare/v2.0.2...v2.0.3) (2026-08-08)
+
+
+### Bug Fixes
+
+* **memory:** give recall a date, and a floor below which it says nothing ([fb9dc33](https://github.com/ericmey/openclaw-musubi/commit/fb9dc338b08188134746dd06f0da7e257ae4fa63))
+* **memory:** make recall evidence boundaries explicit ([28c4186](https://github.com/ericmey/openclaw-musubi/commit/28c41866bf6db67fd887a0df8ae18924984c92e0))
+* **memory:** qualify and surface recall date lookups ([c8fc203](https://github.com/ericmey/openclaw-musubi/commit/c8fc2038a09f993e03284bc6d81af52bf4882db2))
+
+## [2.0.2](https://github.com/ericmey/openclaw-musubi/compare/v2.0.1...v2.0.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* share delivery across plugin registrations ([7060b7a](https://github.com/ericmey/openclaw-musubi/commit/7060b7ab3a6f3fb4fc0dbee2337d5a22c0fc10db))
+
+## [2.0.1](https://github.com/ericmey/openclaw-musubi/compare/v2.0.0...v2.0.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* expose passive capture diagnostics ([97bd5ce](https://github.com/ericmey/openclaw-musubi/commit/97bd5ce0f2ae4660d5ec76c6bfdeecd11c9cadd4))
+
+## [2.0.0](https://github.com/ericmey/openclaw-musubi/compare/v1.0.3...v2.0.0) (2026-08-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* Musubi must own plugins.slots.memory and requires OpenClaw >=2026.7.1.
+
+### Features
+
+* make Musubi OpenClaw's first-class memory provider ([9c7a0d1](https://github.com/ericmey/openclaw-musubi/commit/9c7a0d1c42b8061adbf45aacc1fb91e32461e7ae))
+
+## [1.0.3](https://github.com/ericmey/openclaw-musubi/compare/v1.0.2...v1.0.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **register:** cache bootstrap promise to prevent re-bootstrap on repeated register() calls ([f7f6330](https://github.com/ericmey/openclaw-musubi/commit/f7f63303667722f1f4f9e9d99da2672e187fbde0))
+
+## [1.0.2](https://github.com/ericmey/openclaw-musubi/compare/v1.0.1...v1.0.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* regenerate package lock ([27536be](https://github.com/ericmey/openclaw-musubi/commit/27536be15f844cf97e35a6901730c7993a45d388))
+
+## [1.0.1](https://github.com/ericmey/openclaw-musubi/compare/v1.0.0...v1.0.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* package.json main+exports and openclaw.extensions for npm consumers ([#34](https://github.com/ericmey/openclaw-musubi/issues/34)) ([25ea820](https://github.com/ericmey/openclaw-musubi/commit/25ea820e3634f14b4ce74f33dce025343c5ef334))
+
+## [1.0.0](https://github.com/ericmey/openclaw-musubi/compare/v0.1.0...v1.0.0) (2026-05-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* 1.0.0 stable. Plugin contract surface is now stable; future breaking changes follow semver. Consumers on Node <22.14 must upgrade. Consumers on openclaw <2026.5.4 must upgrade or stay on 0.1.x.
+
+### Features
+
+* prepare 1.0.0 stable release ([#31](https://github.com/ericmey/openclaw-musubi/issues/31)) ([05e7029](https://github.com/ericmey/openclaw-musubi/commit/05e7029d032ce619bbb113d69d2c34416d7658eb))
+* **supplement:** tenant-wide retrieve via wildcard base ([#23](https://github.com/ericmey/openclaw-musubi/issues/23)) ([05424c3](https://github.com/ericmey/openclaw-musubi/commit/05424c36d2fac720c1152dd1c3b2f6d3b37a00c8))
+* **thoughts:** history backfill on X-Musubi-Replay-Truncated ([#22](https://github.com/ericmey/openclaw-musubi/issues/22)) ([835b620](https://github.com/ericmey/openclaw-musubi/commit/835b6208a17386754636d272b42bcd001771d031))
+* **tools:** canonical agent-tools conformance — musubi_search + musubi_recent ([#26](https://github.com/ericmey/openclaw-musubi/issues/26)) ([3f5b66e](https://github.com/ericmey/openclaw-musubi/commit/3f5b66e57e4cd64c5431daafbb61684a119731df))
+* **tools:** musubi_get — fetch one object by id across any plane ([#24](https://github.com/ericmey/openclaw-musubi/issues/24)) ([8755542](https://github.com/ericmey/openclaw-musubi/commit/8755542468a058cfae94d9050230de91f05c9ae2))
+* **v1.0:** align with Musubi v1.0 endpoint rename + title promotion ([#21](https://github.com/ericmey/openclaw-musubi/issues/21)) ([8077612](https://github.com/ericmey/openclaw-musubi/commit/80776126cfb7be54683e4f7c5c21f7a190965a64))
+
+
+### Bug Fixes
+
+* **bootstrap:** read api.pluginConfig instead of api.config ([dfc4b65](https://github.com/ericmey/openclaw-musubi/commit/dfc4b65df23803ce774395d71f066c51a12cce91))
+* **plugin:** cross-validated remediation — per-agent tokens, 2-seg retrieve, SSE resilience, importance bounds ([#20](https://github.com/ericmey/openclaw-musubi/issues/20)) ([c2b49f2](https://github.com/ericmey/openclaw-musubi/commit/c2b49f26c8b1f19b745ca264f8392da75568b885))
+
+## [Unreleased]
+
+### Added
+- **Stable 1.0.0 release.** Plugin contract surface, agent tool set, and configuration schema are now stable; future breaking changes will follow semver and be documented here.
+- Released to npm as [`openclaw-musubi`](https://www.npmjs.com/package/openclaw-musubi) with provenance attestation (SLSA Level 3 via npm trusted publishing OIDC).
+- Compat target lifted to OpenClaw `>=2026.5.4` — first version with the externalized-plugin gate path that recognizes our agent-tools registration when `contracts.tools` is properly declared.
+- Six canonical agent tools now declared in `openclaw.plugin.json` `contracts.tools` — `musubi_search`, `musubi_recent`, `musubi_get`, `musubi_remember`, `musubi_think`, `musubi_recall` (deprecation alias). Each `registerTool` call now passes its name explicitly so the openclaw 5.4 registry can verify the registration against the contract.
+- Repository tooling: Biome (lint + format), CodeQL workflow, Dependabot config, GitHub issue and PR templates as form-based YAML, expanded CI matrix covering Node 22 and 24, release-please for automated version PRs from conventional commits, OIDC trusted publishing.
+
+### Changed
+- Migrated from pnpm to npm. `engines.node` raised from `>=22` to `>=22.14.0` to match openclaw core.
+- Migrated from ESLint + Prettier to Biome 2.4.14 with a single `biome.json` config.
+
+## [0.1.0] — 2026-04-22
+
+First tagged release. The plugin is loadable against OpenClaw via `definePluginEntry` and ships the full Musubi integration surface:
+
+- **Episodic capture mirror** — `agent_end` events become `POST /v1/episodic` captures. Failures never block OpenClaw's native memory write.
+- **Memory prompt supplement** — synchronous, cached `MemoryPromptSectionBuilder` with per-plane provenance labels. Background `refresh()` on a 60s interval.
+- **Memory corpus supplement** — agent-queryable `search`/`get` against Musubi's canonical retrieve surface.
+- **Thought-stream SSE consumer** — listens to `GET /v1/thoughts/stream` with all six consumer-expectation rules (jitter-backoff, persisted `Last-Event-ID`, bounded dedup, 403 no-reconnect, 60s ping-gap timeout, lex string object-id comparison).
+- **Three agent tools** — `musubi_recall` (deep-path retrieve), `musubi_remember` (explicit capture at importance 7), `musubi_think` (presence-to-presence thought send).
+- **Presence resolution** — maps OpenClaw agent ids to Musubi presences with per-agent token support.
+- **Typed HTTP client** — retry, idempotency, error taxonomy, per-request timeout.
+
+No runtime integration tests yet — the plugin is "built, not turned on." Load testing + a production cutover live behind the v0.x.y boundary; until then, v0.1.0 is an alpha suitable for sideload + exercise.
+
+### Added
+
+- `src/plugin/bootstrap.ts` — wires every subsystem (slices #2–#8) into a
+  single `definePluginEntry` registration: validates the plugin config
+  against the TypeBox schema (failing loud on invalid input), constructs
+  a shared `MusubiClient`, builds the corpus + prompt supplements,
+  capture mirror, three agent tools, and SSE thought stream, and starts
+  the prompt-refresh scheduler + stream consumer. Returns a
+  `LifecycleHandle` so the plugin teardown path can stop both long-lived
+  workers deterministically. Test-injectable scheduler and stream
+  factories keep bootstrap fully unit-testable without real timers.
+- `src/plugin/lifecycle.ts` — small coordinator exposing
+  `createLifecycle(...)` (idempotent `stop()` that tears down scheduler
+  + stream in the right order) and `createIntervalScheduler(...)` (fire
+  an immediate first tick, then poll on an interval with re-entrance
+  guard and error isolation).
+- `src/index.ts` now delegates to `bootstrap(...)` instead of logging a
+  placeholder. First real plugin load. The lifecycle handle is kept at
+  module scope + exposed via `getLifecycle()` for host-side teardown.
+- `docs/architecture/wiring.md` — how the parts compose, scheduler
+  cadence, shutdown order.
+- `@sinclair/typebox` `FormatRegistry` is now primed at bootstrap time
+  with a `uri` validator (thin `new URL(...)` parse) so the
+  `core.baseUrl` schema constraint is enforced at install time instead
+  of crashing `Value.Check` on an unregistered format.
+
+### Added (earlier in this release window)
+
+- Three agent-callable tools in `src/tools/`:
+  - `createRecallTool(...)` → `musubi_recall` — deep-path retrieve across
+    all planes with full hybrid + rerank.
+  - `createRememberTool(...)` → `musubi_remember` — explicit episodic
+    capture at importance 7 (above passive capture's 5), optional
+    client-supplied idempotency key.
+  - `createThinkTool(...)` → `musubi_think` — presence-to-presence
+    thought send; recipient sees it in real-time via the SSE stream.
+  Each factory returns `{ definition, recommendedOptional: true }` — the
+  wiring slice passes `{ optional: true }` to `api.registerTool(...)`.
+- TypeBox parameter schemas in `src/tools/parameters.ts`.
+- `createThoughtStream({ config, ... })` in `src/thoughts/stream.ts` — SSE
+  consumer for `GET /v1/thoughts/stream` with all six consumer-expectation
+  rules: exponential backoff with jitter, persisted `Last-Event-ID`,
+  bounded dedup set, 403 no-reconnect, 60s ping-gap timeout, lex string
+  comparison for object ids. Zero-dep SSE frame parser. Injectable fetch,
+  dedup, persistence, random, sleep, now — fully deterministic tests.
+- `BoundedDedupSet` in `src/thoughts/dedup.ts` — max-size + TTL bounded
+  `Map`-backed dedup with insertion-order eviction.
+- `InMemoryLastEventIdStore` + `LastEventIdStore` interface in
+  `src/thoughts/persistence.ts` — production consumers inject a
+  runtime-backed implementation.
+- `nextSseBackoffMs` in `src/thoughts/backoff.ts` — pure helper matching
+  the spec formula: `min(2^n * 1000ms + rand(0, 1000ms), 60s)`.
+- `createCaptureMirror({ client, config, logger })` in `src/capture/mirror.ts`
+  exposes `handleEvent` / `handleBatch` for the wiring slice to register
+  via OpenClaw's `agent_end` hook (the established pattern from
+  `extensions/memory-lancedb`). Translates capture-eligible events into
+  Musubi episodic posts (`/v1/episodic` and `/v1/episodic/batch`) with
+  stable per-event idempotency keys (`openclaw-mirror:<id>`). **Failures
+  are logged and swallowed** — never throws back into OpenClaw's caller.
+- `translateCaptureEvent` + `deriveIdempotencyKey` in
+  `src/capture/translate.ts` — pure functions; importance is clamped to
+  `[0, 10]`, timestamp defaults to "now", per-presence namespace from the
+  resolver.
+- `createPromptSupplement({ client, config })` in `src/supplement/prompt.ts`
+  returns an OpenClaw `MemoryPromptSectionBuilder`-shaped object plus an
+  out-of-band `refresh()` method. Builder is **synchronous** (per OpenClaw
+  contract) and reads from a pre-warmed cache; HTTP I/O lives in `refresh`.
+  Stale cache survives transient core failures so prompts don't suddenly
+  go empty mid-deploy. Per-plane labeled sections give the model the
+  provenance signal it needs (curated > concept).
+- `createCorpusSupplement({ client, config })` in `src/supplement/corpus.ts`
+  returns an OpenClaw `MemoryCorpusSupplement`-shaped object. `search`
+  POSTs `/v1/retrieve` in fast mode with configured planes (default
+  `[curated, concept]`) and per-presence namespace; `get` fetches by
+  `<plane>/<id>` lookup path. Failures swallowed → empty results so
+  OpenClaw memory search never breaks. Provenance labels per plane
+  let the model weigh curated > concept > episodic naturally.
+- `MusubiClient` in `src/musubi/client.ts` — typed HTTP client over the
+  Musubi canonical API. Bearer auth, fresh `X-Request-Id` per call,
+  stable `Idempotency-Key` reused across retries on POST writes,
+  per-request timeout via `AbortController`, exponential-backoff retry
+  on network/5xx, `Retry-After` honored on 429, no retry on 4xx.
+  `fetch` is injectable so tests run with zero new deps.
+- `MusubiError` taxonomy in `src/musubi/errors.ts` — `NetworkError`,
+  `TimeoutError`, `AuthError`, `NotFoundError`, `RateLimitError`,
+  `ClientError`, `ServerError`. Discriminated by `code` and class.
+- `RetryPolicy` + `nextDelayMs` in `src/musubi/retry.ts` —
+  default `min(2^n * 500ms + rand(0, 250ms), 8s)` over up to 5 attempts;
+  RNG injectable for deterministic tests.
+- `resolvePresence(config, options)` in `src/presence/resolver.ts` returns
+  a typed `PresenceContext` (presence, token, namespace hints) for any
+  Musubi-bound operation. Honors shared mode, per-agent presence mapping,
+  per-agent tokens with graceful fallback, strict mode, and `${ENV_VAR}`
+  substitution. Typed `PresenceResolutionError` with `code` and `agentId`.
+- `core.perAgentTokens` added to plugin config schema (both TypeBox and
+  the manifest's JSON Schema) — maps agent ids to dedicated bearer tokens
+  per ADR-0003.
+- Schema parity test (`tests/schema-parity.test.ts`) that asserts
+  `src/config.ts` (TypeBox) and `openclaw.plugin.json` (JSON Schema) agree
+  on top-level keys, leaf types, enum members, and numeric bounds.
+  Drift surfaces as a CI failure with a path-scoped error message.
+- Initial repository scaffold: package manifest, TypeScript config, lint,
+  test, and format tooling.
+- Plugin manifest (`openclaw.plugin.json`) declaring config schema and UI
+  hints for core URL, token, presence, supplement, capture, and thoughts.
+- Architecture documentation: overview, presence model, transport (HTTP +
+  SSE), API consumer contract.
+- Architecture Decision Records:
+  - ADR-0001 Sidecar-with-authority memory integration.
+  - ADR-0002 Server-Sent Events for thought delivery.
+  - ADR-0003 Per-presence bearer tokens.
+- Contributor documentation: `README.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, `SECURITY.md`.
+- CI workflow, issue templates, PR template, CODEOWNERS.
+
+[Unreleased]: https://github.com/ericmey/openclaw-musubi/commits/main

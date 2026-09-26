@@ -1,0 +1,385 @@
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "../config.js";
+import type { MusubiError } from "./errors.js";
+import {
+  AbortedError,
+  AuthError,
+  ClientError,
+  NetworkError,
+  NotFoundError,
+  RateLimitError,
+  ServerError,
+  TimeoutError,
+} from "./errors.js";
+import { mergeRetryPolicy, nextDelayMs, type RetryPolicy } from "./retry.js";
+import type { ClientOptions, FetchLike, HttpMethod, RequestOptions } from "./types.js";
+
+const AUTH_HEADER = "Authorization";
+const REQUEST_ID_HEADER = "X-Request-Id";
+const IDEMPOTENCY_HEADER = "Idempotency-Key";
+const CONTENT_TYPE_HEADER = "Content-Type";
+const JSON_CONTENT_TYPE = "application/json";
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const defaultIdGenerator = (): string => crypto.randomUUID();
+
+/**
+ * Typed HTTP client for the Musubi canonical API.
+ *
+ * Constructed with a base URL and bearer token; each call adds a fresh
+ * `X-Request-Id` and, on POST writes, a stable `Idempotency-Key` that is
+ * reused across retries so a retried write never double-posts.
+ *
+ * Retry behavior follows `docs/api-contract.md`:
+ * - Network errors, timeouts, and 5xx responses are retried with exponential
+ *   backoff.
+ * - 429 honors `Retry-After` in band up to `retry.maxRetryAfterMs`; a longer
+ *   wait is thrown to the caller so it can be scheduled durably rather than
+ *   slept on under whatever lock the caller holds.
+ * - 401/403/404 and other 4xx are never retried.
+ * - A request the CALLER aborted is never retried; it raises `AbortedError`.
+ * - All retries bounded by `retry.maxAttempts` (default 5).
+ */
+export class MusubiClient {
+  readonly #baseUrl: string;
+  readonly #token: string;
+  readonly #fetch: FetchLike;
+  readonly #retry: RetryPolicy;
+  readonly #requestTimeoutMs: number;
+  readonly #generateRequestId: () => string;
+  readonly #generateIdempotencyKey: () => string;
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #random: () => number;
+
+  constructor(options: ClientOptions) {
+    const normalized = options.baseUrl.replace(/\/+$/, "");
+    if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+      throw new TypeError(`MusubiClient baseUrl must be http(s):// (got "${options.baseUrl}")`);
+    }
+    this.#baseUrl = normalized;
+    this.#token = options.token;
+    this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+    // mergeRetryPolicy omits `undefined` fields so a caller passing
+    // `{ maxAttempts: undefined }` does not poison the loop's numeric
+    // comparisons with `NaN`, and falls back to DEFAULT_RETRY_POLICY
+    // for every field they did not name.
+    this.#retry = mergeRetryPolicy(options.retry);
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#generateRequestId = options.generateRequestId ?? defaultIdGenerator;
+    this.#generateIdempotencyKey = options.generateIdempotencyKey ?? defaultIdGenerator;
+    this.#sleep = options.sleep ?? defaultSleep;
+    this.#random = options.random ?? Math.random;
+  }
+
+  get<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>("GET", path, options);
+  }
+
+  /** Convenience GET with query params — same as {@link get} but types the query bag. */
+  getWithQuery<T = unknown>(
+    path: string,
+    query: NonNullable<RequestOptions["query"]>,
+    options?: Omit<RequestOptions, "query">,
+  ): Promise<T> {
+    return this.request<T>("GET", path, { ...options, query });
+  }
+
+  post<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>("POST", path, options);
+  }
+
+  patch<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>("PATCH", path, options);
+  }
+
+  delete<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    return this.request<T>("DELETE", path, options);
+  }
+
+  async request<T>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
+    const requestId = this.#generateRequestId();
+    const idempotencyKey =
+      method === "POST" ? (options.idempotencyKey ?? this.#generateIdempotencyKey()) : undefined;
+
+    const url = this.#buildUrl(path, options.query);
+    const hasBody = options.body !== undefined;
+    const headers = this.#buildHeaders(requestId, idempotencyKey, hasBody, options.token);
+    const body = hasBody ? JSON.stringify(options.body) : undefined;
+    const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
+
+    for (let attempt = 0; ; attempt++) {
+      const attemptResult = await this.#attemptOnce(
+        method,
+        url,
+        headers,
+        body,
+        requestId,
+        path,
+        timeoutMs,
+        options.signal,
+      );
+
+      if (attemptResult.kind === "ok") {
+        return attemptResult.value as T;
+      }
+
+      const error = attemptResult.error;
+      // `aborted` is deliberately absent: caller cancellation is terminal.
+      const isRetryable =
+        error.code === "network" ||
+        error.code === "timeout" ||
+        error.code === "server" ||
+        error.code === "rate-limit";
+      const hasAttemptsLeft = attempt < this.#retry.maxAttempts - 1;
+
+      if (!isRetryable || !hasAttemptsLeft) {
+        throw error;
+      }
+
+      // Cancellation during the wait must end the call, not merely shorten
+      // it: `stop()` gives the worker 3s and then the controller closes the
+      // outbox, so a loop that woke afterwards and took the AbortedError path
+      // would write to a closed database.
+      if (options.signal?.aborted) {
+        throw new AbortedError({ requestId, cause: error });
+      }
+
+      let delayMs: number;
+      if (error instanceof RateLimitError && error.retryAfterMs !== undefined) {
+        // Hand a long `Retry-After` back to the caller rather than sleeping
+        // on it: the delivery worker holds its drain lock across this await,
+        // so a multi-minute wait here would stall every other queued row.
+        // The durable outbox reschedules it instead. See RetryPolicy.
+        if (error.retryAfterMs > this.#retry.maxRetryAfterMs) {
+          throw error;
+        }
+        delayMs = error.retryAfterMs;
+      } else {
+        delayMs = nextDelayMs(attempt, this.#retry, this.#random);
+      }
+
+      const cancelled = await this.#sleepUnlessAborted(delayMs, options.signal);
+      if (cancelled) {
+        throw new AbortedError({ requestId, cause: error });
+      }
+    }
+  }
+
+  /**
+   * Wait out a backoff, returning early (`true`) if the caller aborts.
+   *
+   * The listener is always removed: a long-lived external signal accumulating
+   * one listener per in-flight retry is its own leak.
+   */
+  async #sleepUnlessAborted(ms: number, signal: AbortSignal | undefined): Promise<boolean> {
+    if (!signal) {
+      await this.#sleep(ms);
+      return false;
+    }
+    if (signal.aborted) return true;
+    let onAbort: (() => void) | undefined;
+    try {
+      return await Promise.race([
+        this.#sleep(ms).then(() => false),
+        new Promise<boolean>((resolve) => {
+          // Re-check inside the listener body: `addEventListener` does
+          // not fire for an abort that completed before the listener was
+          // attached, so a race between `signal.aborted` (false) and
+          // `addEventListener("abort", ...)` would otherwise deadlock
+          // the worker until the full backoff sleep elapsed.
+          onAbort = () => {
+            if (signal.aborted) resolve(true);
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  async #attemptOnce(
+    method: HttpMethod,
+    url: string,
+    headers: Record<string, string>,
+    body: string | undefined,
+    requestId: string,
+    path: string,
+    timeoutMs: number,
+    externalSignal: AbortSignal | undefined,
+  ): Promise<{ kind: "ok"; value: unknown } | { kind: "err"; error: MusubiError }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const abortHandler = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener("abort", abortHandler, { once: true });
+      }
+    }
+
+    let response: Response;
+    try {
+      response = await this.#fetch(url, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } catch (rawError) {
+      clearTimeout(timer);
+      if (externalSignal) {
+        externalSignal.removeEventListener("abort", abortHandler);
+      }
+      const cause = rawError instanceof Error ? rawError : undefined;
+      const isAbort = cause?.name === "AbortError";
+      if (isAbort && externalSignal?.aborted) {
+        // The CALLER cancelled. Retrying would re-abort instantly on every
+        // remaining attempt, burning the full budget plus its backoff sleeps
+        // on a request nobody is waiting for — and, during shutdown, would
+        // keep writing long after `stop()` returned.
+        return { kind: "err", error: new AbortedError({ requestId, cause }) };
+      }
+      // Timeouts stay a distinct subclass (code `timeout`) so callers and
+      // logs keep the distinction; both classes are retried.
+      const error = isAbort
+        ? new TimeoutError(timeoutMs, { requestId, cause })
+        : new NetworkError(cause?.message ?? "Network request failed", { requestId, cause });
+      return { kind: "err", error };
+    }
+    clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", abortHandler);
+    }
+
+    if (response.ok) {
+      const value = await this.#parseBody(response);
+      return { kind: "ok", value };
+    }
+
+    const error = await this.#mapErrorResponse(response, requestId, path);
+    return { kind: "err", error };
+  }
+
+  #buildUrl(path: string, query: RequestOptions["query"]): string {
+    const root = this.#baseUrl;
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const base = `${root}${normalizedPath}`;
+    if (!query) return base;
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value === undefined) continue;
+      params.append(key, String(value));
+    }
+    const qs = params.toString();
+    return qs.length > 0 ? `${base}?${qs}` : base;
+  }
+
+  #buildHeaders(
+    requestId: string,
+    idempotencyKey: string | undefined,
+    hasBody: boolean,
+    tokenOverride?: string,
+  ): Record<string, string> {
+    const headers: Record<string, string> = {
+      [AUTH_HEADER]: `Bearer ${tokenOverride ?? this.#token}`,
+      [REQUEST_ID_HEADER]: requestId,
+      Accept: JSON_CONTENT_TYPE,
+    };
+    if (hasBody) {
+      headers[CONTENT_TYPE_HEADER] = JSON_CONTENT_TYPE;
+    }
+    if (idempotencyKey !== undefined) {
+      headers[IDEMPOTENCY_HEADER] = idempotencyKey;
+    }
+    return headers;
+  }
+
+  async #parseBody(response: Response): Promise<unknown> {
+    if (response.status === 204) return undefined;
+    const contentLength = response.headers.get("content-length");
+    if (contentLength === "0") return undefined;
+    const text = await response.text();
+    if (text.length === 0) return undefined;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+
+  async #mapErrorResponse(
+    response: Response,
+    requestId: string,
+    path: string,
+  ): Promise<MusubiError> {
+    const status = response.status;
+    const bodyText = await response.text().catch(() => "");
+
+    if (status === 401 || status === 403) {
+      return new AuthError(status as 401 | 403, { requestId });
+    }
+    if (status === 404) {
+      return new NotFoundError(path, { requestId });
+    }
+    if (status === 429) {
+      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
+      return new RateLimitError(retryAfterMs, { requestId });
+    }
+    if (status >= 500) {
+      return new ServerError(status, truncate(bodyText), { requestId });
+    }
+    return new ClientError(status, truncate(bodyText), { requestId });
+  }
+}
+
+function parseRetryAfter(header: string | null): number | undefined {
+  if (header === null) return undefined;
+  const trimmed = header.trim();
+  // `Number("")` is 0, which would schedule an immediate hot retry.
+  if (trimmed.length === 0) return undefined;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return undefined;
+}
+
+/**
+ * Coerce a server response into the typed envelope the caller expects,
+ * throwing a {@link ClientError} when the shape drifts.
+ *
+ * The HTTP client surfaces `request<T>` as `T` via a single cast
+ * (`return attemptResult.value as T`); a server contract drift therefore
+ * becomes a typed field that is, in fact, `undefined`, and downstream
+ * code reads `undefined.something` or silently misclassifies. This guard
+ * catches the drift at the typed boundary instead — three call sites
+ * (capture response, retrieve response, readback response) cover every
+ * server round-trip the plugin makes.
+ *
+ * The guard is intentionally narrow: `object_id` is the only required
+ * string. Callers that need additional fields (results, warnings,
+ * tags) re-validate inside their own envelope gate.
+ */
+export function assertObjectId(value: unknown, context: string): { readonly object_id: string } {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    typeof (value as { object_id?: unknown }).object_id !== "string" ||
+    (value as { object_id: string }).object_id.length === 0
+  ) {
+    throw new ClientError(422, `server returned an invalid envelope (${context})`);
+  }
+  return value as { readonly object_id: string };
+}
+
+function truncate(value: string, max = 200): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}…`;
+}

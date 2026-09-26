@@ -1,0 +1,207 @@
+{
+  "id": "musubi",
+  "name": "Musubi Memory",
+  "description": "First-class durable Musubi memory provider for OpenClaw: native recall/store tools, verified episodic capture, and operator-visible delivery health.",
+  "kind": "memory",
+  "homepage": "https://github.com/ericmey/openclaw-musubi",
+  "author": "Eric Mey",
+  "uiHints": {
+    "core.baseUrl": {
+      "label": "Musubi Core URL",
+      "placeholder": "https://musubi.example.internal",
+      "help": "Base URL of your Musubi core service. Plugin talks to this over HTTPS."
+    },
+    "core.token": {
+      "label": "Bearer Token",
+      "sensitive": true,
+      "placeholder": "mbi_...",
+      "help": "Bearer token issued by Musubi. Scope must include the presence(s) this plugin represents."
+    },
+    "core.perAgentTokens": {
+      "label": "Per-Agent Tokens",
+      "sensitive": true,
+      "advanced": true,
+      "help": "Map OpenClaw agent ids to dedicated Musubi bearer SecretRefs. Used in per-agent presence mode to keep each agent's identity isolated. Shape: {\"aoi\": {\"source\":\"exec\",\"provider\":\"onepassword\",\"id\":\"musubi-aoi\"}}."
+    },
+    "presence.defaultId": {
+      "label": "Default Presence",
+      "placeholder": "eric/openclaw",
+      "help": "Presence identifier used when no per-agent presence mapping is provided. Shape: <owner>/<presence>."
+    },
+    "presence.perAgent": {
+      "label": "Per-Agent Presence Map",
+      "advanced": true,
+      "help": "Map OpenClaw agent ids to Musubi presences. Shape: {\"aoi\": \"eric/aoi\", \"rin\": \"eric/rin\"}."
+    },
+    "supplement.enabled": {
+      "label": "Legacy Supplement Compatibility",
+      "help": "Deprecated compatibility setting retained for configuration migration. First-class Musubi retrieval uses native memory tools."
+    },
+    "supplement.planes": {
+      "label": "Supplement Planes",
+      "advanced": true,
+      "help": "Which Musubi planes contribute to the memory supplement. Default: curated, concept."
+    },
+    "supplement.maxResults": {
+      "label": "Supplement Result Cap",
+      "advanced": true,
+      "placeholder": "5",
+      "help": "Max results injected per memory turn. Keep small — prompt budget is limited."
+    },
+    "capture.mirrorOpenClawMemory": {
+      "label": "Legacy Capture Alias",
+      "advanced": true,
+      "help": "Deprecated alias for capture.completedTurns. Retained for one migration release."
+    },
+    "capture.completedTurns": {
+      "label": "Capture Completed Turns",
+      "help": "Durably queue completed OpenClaw turns into Musubi episodic memory."
+    },
+    "capture.skipSessionKeys": {
+      "label": "Skipped Capture Sessions",
+      "advanced": true,
+      "help": "Session-key globs that must never be captured. Use * as a wildcard, for example agent:*:ops-*."
+    },
+    "thoughts.enabled": {
+      "label": "Legacy Thought Delivery",
+      "help": "Deprecated and inactive in this release. The old inbound SSE consumer had no OpenClaw context-delivery contract and is not registered by the first-class provider."
+    },
+    "thoughts.reconnect.maxBackoffMs": {
+      "label": "Legacy Thought Reconnect Max Backoff",
+      "advanced": true,
+      "placeholder": "30000",
+      "help": "Deprecated compatibility setting; inactive in this release."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "core": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "token": {
+            "type": ["string", "object"]
+          },
+          "requestTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 120000
+          },
+          "perAgentTokens": {
+            "type": "object",
+            "additionalProperties": {
+              "type": ["string", "object"]
+            }
+          }
+        },
+        "required": ["baseUrl", "token"]
+      },
+      "presence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "defaultId": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "perAgent": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          }
+        },
+        "required": ["defaultId"]
+      },
+      "supplement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "planes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["curated", "concept", "episodic", "artifact"]
+            }
+          },
+          "maxResults": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "capture": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "completedTurns": {
+            "type": "boolean"
+          },
+          "skipSessionKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "mirrorOpenClawMemory": {
+            "type": "boolean"
+          }
+        }
+      },
+      "thoughts": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reconnect": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "maxBackoffMs": {
+                "type": "number",
+                "minimum": 1000,
+                "maximum": 600000
+              }
+            }
+          }
+        }
+      }
+    },
+    "required": ["core", "presence"]
+  },
+  "contracts": {
+    "tools": [
+      "musubi_search",
+      "musubi_recent",
+      "musubi_get",
+      "musubi_remember",
+      "musubi_think",
+      "musubi_recall",
+      "memory_search",
+      "memory_get",
+      "memory_store"
+    ]
+  },
+  "configContracts": {
+    "secretInputs": {
+      "paths": [
+        { "path": "core.token", "expected": "string" },
+        { "path": "core.perAgentTokens.*", "expected": "string" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,87 @@
+/**
+ * Build the family-wide target for Musubi cross-plane retrieval.
+ *
+ * Reads OMIT the `namespace` field entirely and send only an explicit
+ * planes list. The server's AUTH-001 no-namespace path then enumerates
+ * every concrete namespace in the caller's identity family and — unlike
+ * an explicit namespace — FILTERS OUT unauthorized namespaces instead of
+ * rejecting the whole request.
+ *
+ * This is deliberate. The previous shape (`<owner>/*`) was expanded
+ * against live Qdrant payloads and ran with strict authorization: one
+ * stored namespace outside the token's scope (a pre-migration orphan
+ * row, a family-level `shared` concept namespace) made the server 403
+ * the ENTIRE retrieve, taking the agent's recall down with it. The
+ * no-namespace family path returns the authorized subset instead, so
+ * recall degrades to "what this token can see" rather than failing.
+ *
+ * THE TRADE the omission makes — and the reason `expectedOwner` exists:
+ * with no namespace in the request, the server derives the identity
+ * family solely from the presented token. Under a credential
+ * misbinding (agent A configured with agent B's token) the old explicit
+ * `<owner>/*` request failed authorization; the no-namespace request
+ * would succeed and return B-family memories to A. Callers MUST
+ * therefore enforce the local identity boundary on the response: every
+ * returned row's first namespace segment must equal `expectedOwner`,
+ * and the first foreign row fails the whole call before any downstream
+ * content handling — the row is never merged, surfaced, or logged.
+ * See ADR-0005.
+ *
+ * Writes remain bound to concrete three-segment child namespaces.
+ */
+
+import type { PresenceContext } from "../presence/resolver.js";
+
+export type RetrieveTarget = {
+  /**
+   * Namespace to send on the retrieve body, or undefined to use the
+   * server-side family-discovery path (the default for reads).
+   */
+  readonly namespace: string | undefined;
+  readonly planes: readonly string[];
+  /**
+   * First segment of the configured presence — the identity family this
+   * client BELIEVES it is retrieving for. Response rows whose namespace
+   * lies outside `${expectedOwner}/…` prove a token/presence misbinding
+   * and must fail the call closed.
+   */
+  readonly expectedOwner: string;
+};
+
+/**
+ * Map plane → API path prefix. Curated and episodic are singular in the
+ * canonical API; concept and artifact are plural. Hard-coded here so the
+ * agent never needs to know the pluralization rule. Used by both ranked
+ * retrieval (via the per-row date enrichment GET in `tools/search.ts`)
+ * and the exact object read (`tools/get.ts`).
+ *
+ * Typed as `Record<string, string>` (rather than the closed union) so
+ * callers indexing by an unknown `row.plane` from a server envelope
+ * still typecheck — the search path guards with `if (!base)` and emits
+ * a warning, never crashing on an unknown plane label.
+ */
+export const PLANE_PATH: Record<string, string> = {
+  curated: "/v1/curated",
+  concept: "/v1/concepts",
+  episodic: "/v1/episodic",
+  artifact: "/v1/artifacts",
+};
+
+export function buildRetrieveTargets(
+  presence: PresenceContext,
+  planes: readonly string[],
+): RetrieveTarget[] {
+  const owner = presence.presence.split("/", 1)[0];
+  if (!owner) throw new Error(`invalid Musubi presence: ${presence.presence}`);
+  // Single-target today, single-presence by signature: the type allows
+  // for future multi-presence callers, but the identity-boundary check
+  // in `tools/search.ts` anchors on `targets[0]?.expectedOwner`. If a
+  // future change ever returns multiple targets with different owners,
+  // that anchor silently drops every owner after the first. Future
+  // multi-target code paths must therefore assert owner-equality HERE
+  // (fail at registration, not at every retrieval) before that anchor
+  // becomes wrong. Documented here so the next contributor does not
+  // add a second owner without re-reading the boundary contract in
+  // search.ts.
+  return [{ namespace: undefined, planes: [...planes], expectedOwner: owner }];
+}
