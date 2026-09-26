@@ -214,7 +214,7 @@ Rejects `${my_token}` or `${MusubiToken}`. Shell convention allows
 
 The test header says:
 ```bash
-MUSUBI_LIVE_BASE_URL=http://musubi.mey.house:8100/v1
+MUSUBI_LIVE_BASE_URL=https://musubi.example.com/v1
 ```
 
 `MusubiClient` appends `/v1/episodic` to `baseUrl`. Following the docs literally

@@ -4,7 +4,7 @@
 
 Please **do not** open a public issue for security vulnerabilities.
 
-Instead, email **eric.mey@salesai.com** with:
+Instead, email **ericmey@gmail.com** with:
 
 - A description of the issue.
 - Steps to reproduce, including plugin version, OpenClaw version, and Musubi
