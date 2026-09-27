@@ -1,8 +1,12 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
-import { MusubiError } from "../musubi/errors.js";
-import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
-import { buildRetrieveTargets, PLANE_PATH } from "../retrieval/targets.js";
+import {
+  errorMessage,
+  guardedRetrieve,
+  type MusubiRetrieveRow,
+  STRONG_MATCH_MIN_SCORE,
+} from "../retrieval/guarded.js";
+import { PLANE_PATH } from "../retrieval/targets.js";
 import { SearchParameters, type SearchParams } from "./parameters.js";
 
 /**
@@ -42,24 +46,6 @@ export type SearchTool = {
 };
 
 const DEFAULT_LIMIT = 10;
-
-/**
- * Below this top score, candidate CONTENT is withheld entirely.
- *
- * Initial safety floor, not a tuned value. On 2026-08-07 a failed recall query
- * against Mizuki's namespace returned a flat plateau topping out at 0.54; later
- * corpus inspection showed that plateau was dominated by duplicate OpenClaw
- * heartbeat probes, not wrong-week human memories. The incident proves that
- * weak machine-noise candidates must be withheld, but it does NOT calibrate
- * relevance for clean human memories. Keep 0.60 as a conservative provisional
- * floor until known-answer queries against the cleaned corpus measure both
- * genuine matches and genuine near-misses.
- *
- * Deliberately asymmetric: a false miss is recoverable by rephrasing the
- * question. Fabricated episodic certainty is not -- it becomes something a
- * person believes they lived. Do not lower it on intuition.
- */
-const STRONG_MATCH_MIN_SCORE = 0.6;
 
 type DatedRow = MusubiRetrieveRow & { readonly created_at?: string };
 type DateEnrichment = {
@@ -142,31 +128,6 @@ async function withDates(
   };
 }
 
-type MusubiRetrieveRow = {
-  readonly object_id: string;
-  readonly score: number;
-  readonly plane: string;
-  readonly content: string;
-  readonly namespace: string;
-  readonly title?: string | null;
-  /**
-   * The server slices oversized content and flags the cut (DQ-001). Rendering
-   * a slice as though it were the whole object invites the agent to speak
-   * about source it has not actually seen — the same class of error the score
-   * floor above exists to prevent.
-   */
-  readonly content_truncated?: boolean;
-  /** Server-side slice length in CHARACTERS (UTF-16 code units), not bytes. */
-  readonly content_length?: number;
-};
-
-type MusubiRetrieveResponse = {
-  readonly results: readonly MusubiRetrieveRow[];
-  readonly warnings?: readonly unknown[];
-};
-
-const RECALL_STATES = ["provisional", "matured", "promoted"] as const;
-
 /**
  * Backing implementation. Exported so the deprecation alias in
  * `recall.ts` reuses the exact same code path — no parameter or
@@ -176,105 +137,20 @@ export async function executeSearch(
   options: CreateSearchToolOptions,
   params: SearchParams,
 ): Promise<ToolResult> {
-  const { client, config, agentId } = options;
-
-  let presence: PresenceContext;
-  try {
-    presence = resolvePresence(config, { agentId });
-  } catch (err) {
-    return toolError(`Presence unresolved: ${errorMessage(err)}`);
-  }
-
   const limit = params.limit ?? DEFAULT_LIMIT;
   const defaultPlanes = ["curated", "concept", "episodic", "artifact"];
   const callerPlanes = params.planes ? [...params.planes] : defaultPlanes;
-  const targets = buildRetrieveTargets(presence, callerPlanes);
-
-  const settled = await Promise.allSettled(
-    targets.map((t) =>
-      client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-        body: {
-          // `namespace` is deliberately omitted for undefined targets:
-          // the server's family-discovery path filters unauthorized
-          // namespaces instead of 403ing the whole request the way an
-          // explicit wildcard does. See retrieval/targets.ts.
-          ...(t.namespace !== undefined ? { namespace: t.namespace } : {}),
-          planes: [...t.planes],
-          query_text: params.query,
-          mode: "deep",
-          limit,
-          state_filter: [...RECALL_STATES],
-        },
-        token: presence.token,
-      }),
-    ),
-  );
-  if (settled.every((r) => r.status === "rejected")) {
-    const firstErr =
-      settled[0]?.status === "rejected"
-        ? (settled[0] as PromiseRejectedResult).reason
-        : new Error("unknown");
-    return toolError(`Musubi search failed: ${errorMessage(firstErr)}`);
-  }
-  const seen = new Set<string>();
-  const merged: MusubiRetrieveRow[] = [];
-  const warnings: string[] = [];
-  // Identity-boundary invariant: every target must agree on `expectedOwner`,
-  // because the row-by-row check below fails closed on the FIRST foreign
-  // owner it sees. Anchoring on `targets[0]?.expectedOwner` would let a
-  // future multi-presence build slip a different owner past the gate,
-  // since targets[1..N] are not consulted. Today the build only ever
-  // returns one target; this asserts the invariant explicitly so the
-  // gate stays correct when buildRetrieveTargets grows.
-  const owners = new Set(targets.map((t) => t.expectedOwner));
-  if (owners.size !== 1) {
-    return toolError(
-      `Musubi identity boundary violation: buildRetrieveTargets returned ` +
-        `targets with conflicting owners (${[...owners].join(", ")}). No ` +
-        `results were surfaced. This is a plugin configuration bug, not a ` +
-        `server response — file an issue.`,
-    );
-  }
-  const expectedOwner = targets[0]?.expectedOwner;
-  for (const result of settled) {
-    if (result.status !== "fulfilled") {
-      warnings.push(`one retrieval target failed: ${errorMessage(result.reason)}`);
-      continue;
-    }
-    for (const warning of result.value.warnings ?? []) {
-      warnings.push(`Musubi warning: ${formatWarning(warning)}`);
-    }
-    for (const row of result.value.results ?? []) {
-      // IDENTITY BOUNDARY — the FIRST statement in the row loop, before
-      // any downstream content handling: the row is never merged,
-      // surfaced, or logged. (The HTTP body was necessarily JSON-parsed
-      // by the client before this loop; the guarantee is about what
-      // happens to row content after that.) No-namespace retrieval lets
-      // the server derive the identity family from the presented token
-      // alone, so a credential misbinding (this agent configured with
-      // another agent's token) would otherwise SUCCEED and hand this
-      // agent someone else's memories. A single foreign row fails the
-      // entire call — no partial success, no silent dropping — so
-      // operators see the misbinding instead of the agents quietly
-      // sharing a mind.
-      const rowNamespace = typeof row.namespace === "string" ? row.namespace : "";
-      const rowOwner = rowNamespace.split("/", 1)[0];
-      if (expectedOwner === undefined || rowOwner !== expectedOwner) {
-        return toolError(
-          `Musubi identity boundary violation: retrieval returned namespace ` +
-            `"${rowNamespace}" outside the configured identity "${expectedOwner ?? "?"}/…". ` +
-            `No results were surfaced. This means the token bound to this agent ` +
-            `authenticates a DIFFERENT identity family — check ` +
-            `plugins.entries.musubi.config.core.perAgentTokens for this agent before retrying.`,
-        );
-      }
-      if (seen.has(row.object_id)) continue;
-      seen.add(row.object_id);
-      merged.push(row);
-    }
-  }
-  merged.sort((a, b) => b.score - a.score);
-  const results = merged.slice(0, limit);
+  const retrieved = await guardedRetrieve(options, {
+    query: params.query,
+    planes: callerPlanes,
+    limit,
+    mode: "deep",
+  });
+  if (!retrieved.ok) return toolError(retrieved.message);
+  const { client } = options;
+  const { presence, warnings: retrieveWarnings } = retrieved;
+  const warnings = [...retrieveWarnings];
+  const results = retrieved.rows;
   if (results.length === 0) {
     const status =
       warnings.length > 0
@@ -348,21 +224,6 @@ function toolText(text: string): ToolResult {
 
 function toolError(text: string): ToolResult {
   return { content: [{ type: "text", text }], isError: true };
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof MusubiError) return `${err.name}: ${err.message}`;
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
-function formatWarning(warning: unknown): string {
-  if (typeof warning === "string") return warning;
-  try {
-    return JSON.stringify(warning);
-  } catch {
-    return String(warning);
-  }
 }
 
 function appendWarnings(text: string, warnings: readonly string[]): string {
