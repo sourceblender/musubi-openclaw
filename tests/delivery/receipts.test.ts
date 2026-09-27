@@ -186,6 +186,31 @@ describe("DeliveryWorker receipt-first delivery", () => {
     outbox.close();
   });
 
+  it("a durable-marked row is held even if the receipt route later disappears (404)", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
+    outbox.freezeRequestBody(row.id, captureRequestBody(row));
+    outbox.markPostAttempted(row.id, "durable");
+    outbox.markFailed(row.id, "network", true, -1_000_000);
+    const { worker, calls } = makeWorker(outbox, (c) =>
+      isLookup(c)
+        ? json({ detail: "Not Found" }, 404)
+        : isCapture(c)
+          ? accepted("dup")
+          : json({}, 500),
+    );
+    worker.start();
+    await settle();
+    await worker.stop();
+    expect(calls.some(isCapture)).toBe(false);
+    expect(calls.some((c) => c.url.includes("/v1/retrieve"))).toBe(false);
+    const after = outbox.row(row.id);
+    expect(after?.state).toBe("pending");
+    expect(after?.post_attempt).toBe("durable");
+    expect(after?.last_error).toContain("no re-POST");
+    outbox.close();
+  });
+
   it("a failed durable POST is sent once (no in-request retry) and then held", async () => {
     const outbox = open();
     const row = outbox.enqueue(item());

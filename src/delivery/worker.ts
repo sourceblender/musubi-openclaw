@@ -174,11 +174,14 @@ export class DeliveryWorker {
         );
         return;
       }
-      if (receipt.status === "absent" && row.post_attempt === "durable") {
+      if (row.post_attempt === "durable") {
         // A durable POST may have reached the server and its outcome is
-        // unknown. Per canonical-api, `absent` is not permission to re-POST
-        // after an ambiguous failure (orphan reconciliation, musubi #558, is
-        // not landed). Hold the row and keep asking; never send twice.
+        // unknown. Only `found` (above) resolves it. `absent` is not
+        // permission to re-POST (canonical-api; orphan reconciliation, musubi
+        // #558, is not landed), and neither is `unsupported`: a receipt route
+        // that later answers 404/405 (server rollback, routing outage) must
+        // not turn a possibly-committed durable write into a legacy re-POST.
+        // Hold the row and keep asking; never send twice.
         throw new TransientDeliveryError(
           "receipt absent after a durable POST attempt; holding (absent is fail-closed, no re-POST)",
         );
