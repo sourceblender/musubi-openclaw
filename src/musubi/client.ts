@@ -17,6 +17,7 @@ const AUTH_HEADER = "Authorization";
 const REQUEST_ID_HEADER = "X-Request-Id";
 const IDEMPOTENCY_HEADER = "Idempotency-Key";
 const CONTENT_TYPE_HEADER = "Content-Type";
+const RECEIPT_HEADER = "Idempotency-Receipt";
 const JSON_CONTENT_TYPE = "application/json";
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -103,9 +104,21 @@ export class MusubiClient {
       method === "POST" ? (options.idempotencyKey ?? this.#generateIdempotencyKey()) : undefined;
 
     const url = this.#buildUrl(path, options.query);
-    const hasBody = options.body !== undefined;
+    if (options.body !== undefined && options.rawBody !== undefined) {
+      throw new TypeError("MusubiClient.request: pass either body or rawBody, not both");
+    }
+    const hasBody = options.body !== undefined || options.rawBody !== undefined;
     const headers = this.#buildHeaders(requestId, idempotencyKey, hasBody, options.token);
-    const body = hasBody ? JSON.stringify(options.body) : undefined;
+    if (options.durableReceipt) {
+      if (idempotencyKey === undefined) {
+        throw new TypeError(
+          "MusubiClient.request: durableReceipt requires a POST with an idempotency key",
+        );
+      }
+      headers[RECEIPT_HEADER] = "durable";
+    }
+    const body =
+      options.rawBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined);
     const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
 
     for (let attempt = 0; ; attempt++) {
@@ -131,7 +144,7 @@ export class MusubiClient {
         error.code === "timeout" ||
         error.code === "server" ||
         error.code === "rate-limit";
-      const hasAttemptsLeft = attempt < this.#retry.maxAttempts - 1;
+      const hasAttemptsLeft = options.noRetry !== true && attempt < this.#retry.maxAttempts - 1;
 
       if (!isRetryable || !hasAttemptsLeft) {
         throw error;

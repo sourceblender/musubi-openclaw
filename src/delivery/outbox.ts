@@ -39,6 +39,23 @@ export type DeliveryRow = {
   readonly object_id: string | null;
   /** Tri-state evidence from CaptureResponse.dedup: 1 merge, 0 no merge, NULL unavailable. */
   readonly write_dedup_merge: number | null;
+  /**
+   * Exact JSON bytes of the capture POST, frozen before the first send and
+   * replayed verbatim on every retry. Musubi's idempotency receipt binds a
+   * digest of these bytes, so re-serialising per attempt could turn a
+   * harmless field-order change into a 409. Cleared with `content` on verify.
+   */
+  readonly request_body: string | null;
+  /**
+   * Durable marker written BEFORE a capture POST leaves the process.
+   * `durable`: a POST carrying `Idempotency-Receipt: durable` may have
+   * reached the server, so a later `absent` lookup is NOT permission to
+   * re-POST (canonical-api: absent is fail-closed until orphan
+   * reconciliation lands). `legacy`: a POST without the durable header
+   * (server predates the receipt API). NULL: no POST recorded; rows enqueued
+   * before this column existed are treated by `attempts` (see worker).
+   */
+  readonly post_attempt: "durable" | "legacy" | null;
 };
 
 export type OutboxHealth = {
@@ -122,7 +139,9 @@ export class DeliveryOutbox {
         died_at_ms INTEGER,
         state TEXT NOT NULL DEFAULT 'pending',
         object_id TEXT,
-        write_dedup_merge INTEGER
+        write_dedup_merge INTEGER,
+        request_body TEXT,
+        post_attempt TEXT
       );
       CREATE INDEX IF NOT EXISTS ix_delivery_outbox_ready
         ON delivery_outbox(state, next_try_at_ms);
@@ -146,6 +165,12 @@ export class DeliveryOutbox {
     }
     if (!columns.has("write_dedup_merge")) {
       this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN write_dedup_merge INTEGER");
+    }
+    if (!columns.has("request_body")) {
+      this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN request_body TEXT");
+    }
+    if (!columns.has("post_attempt")) {
+      this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN post_attempt TEXT");
     }
     // Backfill on EVERY pass, not just the one that adds the column. The
     // ALTER and this UPDATE are separate statements, so a process that died
@@ -308,6 +333,35 @@ export class DeliveryOutbox {
     }
   }
 
+  /**
+   * Freeze the capture request bytes once and return what is stored. If a
+   * body is already frozen (an earlier attempt), that body wins and is
+   * returned unchanged: the bytes the server may already hold a receipt for.
+   */
+  freezeRequestBody(id: number, body: string): string {
+    this.#db
+      .prepare("UPDATE delivery_outbox SET request_body = ? WHERE id = ? AND request_body IS NULL")
+      .run(body, id);
+    const stored = this.#db
+      .prepare("SELECT request_body FROM delivery_outbox WHERE id = ?")
+      .get(id) as { request_body: string | null } | undefined;
+    if (!stored?.request_body) throw new Error(`outbox row ${id} has no frozen request body`);
+    return stored.request_body;
+  }
+
+  /**
+   * Record, durably and BEFORE sending, that a capture POST is about to
+   * leave the process. Never downgraded: once `durable`, always `durable`.
+   */
+  markPostAttempted(id: number, mode: "durable" | "legacy"): void {
+    this.#db
+      .prepare(
+        `UPDATE delivery_outbox SET post_attempt = ?
+         WHERE id = ? AND (post_attempt IS NULL OR (post_attempt = 'legacy' AND ? = 'durable'))`,
+      )
+      .run(mode, id, mode);
+  }
+
   markAccepted(id: number, objectId: string, dedupMerge?: boolean): void {
     this.#db
       .prepare(
@@ -323,7 +377,7 @@ export class DeliveryOutbox {
     this.#db
       .prepare(
         `UPDATE delivery_outbox
-         SET state = 'verified', object_id = ?, content = NULL, last_error = NULL,
+         SET state = 'verified', object_id = ?, content = NULL, request_body = NULL, last_error = NULL,
              consecutive_failures = 0, leased_at_ms = NULL, lease_owner = NULL,
              verified_at_ms = ?
          WHERE id = ?`,

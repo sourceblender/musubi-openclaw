@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { assertObjectId } from "../musubi/client.js";
 import { AbortedError, MusubiError, RateLimitError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import type { DeliveryOutbox, DeliveryRow, OutboxHealth } from "./outbox.js";
+import { lookupCaptureReceipt } from "./receipts.js";
 
 export const RECEIPT_TAG_PREFIX = "openclaw:idem-";
 const RECALL_STATES = ["provisional", "matured", "promoted"] as const;
@@ -140,23 +140,76 @@ export class DeliveryWorker {
         agentId: row.agent_id ?? undefined,
         strict: row.agent_id !== null,
       });
-      if (row.attempts > 0) {
-        const existing = await this.#findByReceipt(row, presence.token);
+      // The exact bytes of this capture, frozen before the FIRST send and
+      // replayed on every retry. Musubi's receipt binds their digest.
+      // A row that already has attempts but reaches here with no frozen body
+      // was enqueued before this upgrade: any earlier POST it made was legacy.
+      const preUpgradeAttempt = row.request_body === null && row.attempts > 0;
+      const requestBody =
+        row.request_body ?? this.#outbox.freezeRequestBody(row.id, captureRequestBody(row));
+      // Receipt-first delivery, mirroring musubi-harness `flush_once`: ask the
+      // server's durable receipt ledger BEFORE every send.
+      const receipt = await lookupCaptureReceipt(this.#client, {
+        namespace: row.namespace,
+        idempotencyKey: row.idem_key,
+        body: requestBody,
+        token: presence.token,
+        signal: this.#abortController.signal,
+      });
+      if (receipt.status === "found") {
+        this.#outbox.markAccepted(row.id, receipt.objectId);
+        await this.#verify(row, receipt.objectId, undefined);
+        return;
+      }
+      if (receipt.status === "in_flight") {
+        throw new TransientDeliveryError("receipt lookup: an earlier attempt is still in flight");
+      }
+      if (receipt.status === "conflict") {
+        // Same Idempotency-Key, different request bytes. Resending cannot
+        // succeed and would never be a replay; this row needs an operator.
+        this.#outbox.markFailed(
+          row.id,
+          "receipt lookup: idempotency key already used with a different request (conflict)",
+          false,
+        );
+        return;
+      }
+      if (row.post_attempt === "durable") {
+        // A durable POST may have reached the server and its outcome is
+        // unknown. Only `found` (above) resolves it. `absent` is not
+        // permission to re-POST (canonical-api; orphan reconciliation, musubi
+        // #558, is not landed), and neither is `unsupported`: a receipt route
+        // that later answers 404/405 (server rollback, routing outage) must
+        // not turn a possibly-committed durable write into a legacy re-POST.
+        // Hold the row and keep asking; never send twice.
+        throw new TransientDeliveryError(
+          "receipt absent after a durable POST attempt; holding (absent is fail-closed, no re-POST)",
+        );
+      }
+      // Rows whose earlier attempt predates the durable path (a legacy POST,
+      // or a pre-upgrade row with attempts but no marker) have no durable
+      // receipt to find. Keep their existing recovery: the receipt-tag search.
+      const legacyAttempt =
+        row.post_attempt === "legacy" || (row.post_attempt === null && preUpgradeAttempt);
+      if (receipt.status === "unsupported" || legacyAttempt) {
+        const existing = legacyAttempt ? await this.#findByReceipt(row, presence.token) : undefined;
         if (existing) {
           this.#outbox.markAccepted(row.id, existing);
           await this.#verify(row, existing, undefined);
           return;
         }
       }
-      const tags = parseTags(row.tags_json);
+      const durable = receipt.status !== "unsupported";
+      // Written BEFORE the request leaves: after this line a crash, abort, or
+      // lost response leaves an ambiguous POST, and the next attempt must know.
+      this.#outbox.markPostAttempted(row.id, durable ? "durable" : "legacy");
       const response = await this.#client.post<CaptureResponse>("/v1/episodic", {
-        body: {
-          namespace: row.namespace,
-          content: row.content ?? "",
-          importance: row.importance,
-          tags: [...tags, `${RECEIPT_TAG_PREFIX}${row.idem_key}`],
-        },
+        rawBody: requestBody,
         idempotencyKey: row.idem_key,
+        durableReceipt: durable,
+        // One send per attempt. An ambiguous failure is resolved by the next
+        // attempt's receipt lookup, never by an in-request retry.
+        noRetry: durable,
         token: presence.token,
         signal: this.#abortController.signal,
       });
@@ -352,6 +405,20 @@ function storedDedupEvidence(row: DeliveryRow): boolean | undefined {
  * never delivered, never dead-lettered, and pinning the provider `degraded`
  * through `oldestPendingAgeMs` with no operator-visible terminal state.
  */
+/**
+ * Serialise a capture row exactly as every release before the byte freeze
+ * did (same key order), so rows enqueued before the upgrade keep the digest
+ * their first attempt already produced.
+ */
+export function captureRequestBody(row: DeliveryRow): string {
+  return JSON.stringify({
+    namespace: row.namespace,
+    content: row.content ?? "",
+    importance: row.importance,
+    tags: [...parseTags(row.tags_json), `${RECEIPT_TAG_PREFIX}${row.idem_key}`],
+  });
+}
+
 export class TransientDeliveryError extends Error {
   constructor(message: string) {
     super(message);
