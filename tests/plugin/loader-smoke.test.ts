@@ -64,6 +64,7 @@ describe("OpenClaw loader acceptance", () => {
     expect(JSON.stringify(parsed)).toContain('"id":"musubi"');
     expect(JSON.stringify(parsed)).toContain('"kind":"memory"');
     expect(JSON.stringify(parsed)).toContain('"agent_end"');
+    expect(JSON.stringify(parsed)).toContain('"before_prompt_build"');
     expect(JSON.stringify(parsed)).not.toMatch(/registration failed|inert|error.*musubi/iu);
 
     // The loader must not mutate authored config during a read-only inspect.

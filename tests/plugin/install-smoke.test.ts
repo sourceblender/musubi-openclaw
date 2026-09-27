@@ -56,6 +56,7 @@ describe("native OpenClaw installation", () => {
       expect(runtime.plugin.status).toBe("loaded");
       expect(runtime.plugin.kind).toBe("memory");
       expect(runtime.typedHooks).toEqual(expect.arrayContaining([{ name: "agent_end" }]));
+      expect(runtime.typedHooks).toEqual(expect.arrayContaining([{ name: "before_prompt_build" }]));
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

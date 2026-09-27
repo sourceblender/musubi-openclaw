@@ -170,6 +170,7 @@ describe("registerMusubi", () => {
     expect(events.filter((event) => event.kind === "capability")).toHaveLength(1);
     expect(events.filter((event) => event.kind === "service")).toHaveLength(1);
     expect(events.filter((event) => event.kind === "hook")).toMatchObject([
+      { kind: "hook", name: "before_prompt_build" },
       { kind: "hook", name: "agent_end" },
     ]);
     expect(events.filter((event) => event.kind === "gateway")).toMatchObject([
