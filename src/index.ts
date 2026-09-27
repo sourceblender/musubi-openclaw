@@ -6,7 +6,6 @@ const musubiPlugin: OpenClawPluginDefinition = definePluginEntry({
   name: "Musubi Memory",
   description:
     "First-class durable Musubi memory provider for OpenClaw: native recall/store tools, verified episodic capture, and operator-visible delivery health.",
-  kind: "memory",
   register(api) {
     registerMusubi({ api, rawConfig: api.pluginConfig });
   },

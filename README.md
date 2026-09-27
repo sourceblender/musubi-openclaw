@@ -31,9 +31,33 @@ disguised as delivery.
 
 ## Requirements
 
-- OpenClaw `>= 2026.7.1`
-- Node.js `>= 22.22.3`
+- OpenClaw `>= 2026.7.1` (the repository gate runs against `2026.9.4`)
+- Node.js `>= 24.16.0 <25` or `>= 26.1.0`
 - A reachable Musubi core with canonical episodic and retrieval APIs
+
+## Install and select the memory slot
+
+Build the plugin before a local linked install. Install it into a valid
+OpenClaw profile **before** adding the memory slot or allow entry: current
+OpenClaw rejects a slot that names a plugin it cannot discover yet. Review
+the manifest's tool, hook, and secret contracts before accepting capabilities.
+For a managed Git install, use the source commit you intend to deploy. The
+npm package remains named `openclaw-musubi` for existing installs; this
+repository is its source of truth.
+
+```bash
+npm ci
+npm run build
+openclaw plugins install -l "$PWD" --force --accept-capabilities
+```
+
+Configure `plugins.allow` to include `musubi`, set
+`plugins.entries.musubi.enabled: true`, and select
+`plugins.slots.memory: "musubi"` as shown below. An install without valid
+Musubi configuration is saved disabled. This external plugin needs
+`plugins.entries.musubi.hooks.allowConversationAccess: true` for completed-turn
+capture and prompt recall. `allowPromptInjection` must not be `false` for
+prompt recall. Review that access before enabling the plugin.
 
 ## Configuration
 
@@ -44,10 +68,12 @@ placeholders are rejected locally before the provider registers.
 ```json
 {
   "plugins": {
+    "allow": ["musubi"],
     "slots": { "memory": "musubi" },
     "entries": {
       "musubi": {
         "enabled": true,
+        "hooks": { "allowConversationAccess": true },
         "config": {
           "core": {
             "baseUrl": "https://musubi.example.internal",
@@ -94,9 +120,9 @@ openclaw musubi-status
 openclaw musubi-doctor --agent vesper
 ```
 
-The loader-backed test runs a built artifact through OpenClaw 2026.7.1 with
-`plugins.slots.memory = "musubi"`; it fails if manifest kind, runtime kind, or
-exclusive capability ownership drift apart.
+The loader-backed test runs a built artifact through OpenClaw 2026.9.4 with
+`plugins.slots.memory = "musubi"`; it checks the manifest-owned memory kind,
+exclusive capability, tools, and conversation-hook registration.
 
 `musubi-doctor` is an explicit deep proof: it queues a diagnostic through the
 same SQLite delivery path as a real turn, waits for canonical GET verification,

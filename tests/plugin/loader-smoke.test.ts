@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("OpenClaw loader acceptance", () => {
-  it("loads Musubi as the selected memory capability through the real 2026.7.1 loader", () => {
+  it("loads Musubi as the selected memory capability through the real 2026.9.4 loader", () => {
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-loader-"));
     roots.push(stateDir);
     const configPath = join(stateDir, "openclaw.json");

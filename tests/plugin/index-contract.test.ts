@@ -11,7 +11,8 @@ describe("plugin entry contract", () => {
     const entry = (await import("../../src/index.js")).default;
     const api = { pluginConfig: { core: {} } };
 
-    expect(entry.kind).toBe("memory");
+    // The manifest owns the exclusive kind; runtime kind is deprecated.
+    expect(entry.kind).toBeUndefined();
     entry.register?.(api as never);
     expect(registerMusubi).toHaveBeenCalledWith({ api, rawConfig: api.pluginConfig });
   });
