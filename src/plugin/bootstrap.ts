@@ -163,6 +163,29 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
       }),
     { scope: "operator.read" },
   );
+  api.registerGatewayMethod(
+    "musubi.doctor",
+    async ({ params, respond }) => {
+      const agentId = params?.agentId;
+      if (agentId !== undefined && (typeof agentId !== "string" || agentId.trim() === "")) {
+        respond(false, undefined, {
+          code: "INVALID_REQUEST",
+          message: "agentId must be a non-empty string",
+        });
+        return;
+      }
+      try {
+        const result = await runDeepDoctor({ client, config, delivery, agentId });
+        respond(true, result);
+      } catch {
+        respond(false, undefined, {
+          code: "UNAVAILABLE",
+          message: "Musubi doctor failed before producing a report",
+        });
+      }
+    },
+    { scope: "operator.write" },
+  );
   api.registerCommand({
     name: "musubi-status",
     description: "Show Musubi memory delivery health.",

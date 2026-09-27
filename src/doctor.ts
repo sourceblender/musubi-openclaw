@@ -35,6 +35,13 @@ export async function runDeepDoctor(options: {
   readonly delivery: DeliveryController;
   readonly agentId?: string;
 }): Promise<DoctorResult> {
+  if (
+    options.agentId !== undefined &&
+    options.config.presence.perAgent !== undefined &&
+    options.config.presence.perAgent[options.agentId] === undefined
+  ) {
+    throw new Error(`agent "${options.agentId}" has no presence mapping for a deep doctor proof`);
+  }
   const presence = resolvePresence(options.config, {
     agentId: options.agentId,
     strict: options.agentId !== undefined,
