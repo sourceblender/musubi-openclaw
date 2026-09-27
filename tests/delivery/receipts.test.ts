@@ -276,9 +276,33 @@ describe("DeliveryWorker receipt-first delivery", () => {
     await worker.awaitTerminal(row.id, 2000);
     await worker.stop();
     expect(log.error).toHaveLength(1);
-    expect(log.error[0]).toContain("dead-lettered (agent=aoi, idempotency=idem-1)");
-    expect(log.error[0]).toContain("conflict");
+    expect(log.error[0]).toContain(
+      "dead-lettered (agent=aoi, idempotency=idem-1, reason=receipt_conflict)",
+    );
     expect(log.error[0]).not.toContain("PRIVATE-CONTENT");
+    outbox.close();
+  });
+
+  it("a 4xx that echoes the request never puts server text in the log line", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item({ content: "PRIVATE-CONTENT" }));
+    const { worker, log } = makeWorker(outbox, (c) =>
+      isLookup(c)
+        ? json({ status: "absent" })
+        : isCapture(c)
+          ? json({ detail: "rejected: PRIVATE-CONTENT is not allowed" }, 422)
+          : json({}, 500),
+    );
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+    await worker.stop();
+    expect(terminal?.state).toBe("dead");
+    expect(log.error).toHaveLength(1);
+    expect(log.error[0]).toContain("reason=delivery_failed, status=422");
+    expect(log.error[0]).not.toContain("PRIVATE-CONTENT");
+    expect(log.error[0]).not.toContain("rejected");
+    // The full detail stays in the local ledger for /musubi-status.
+    expect(terminal?.last_error).toContain("422");
     outbox.close();
   });
 
