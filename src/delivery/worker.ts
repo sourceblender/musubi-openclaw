@@ -167,10 +167,9 @@ export class DeliveryWorker {
       if (receipt.status === "conflict") {
         // Same Idempotency-Key, different request bytes. Resending cannot
         // succeed and would never be a replay; this row needs an operator.
-        this.#outbox.markFailed(
-          row.id,
+        this.#deadLetter(
+          row,
           "receipt lookup: idempotency key already used with a different request (conflict)",
-          false,
         );
         return;
       }
@@ -183,7 +182,7 @@ export class DeliveryWorker {
         // not turn a possibly-committed durable write into a legacy re-POST.
         // Hold the row and keep asking; never send twice.
         throw new TransientDeliveryError(
-          "receipt absent after a durable POST attempt; holding (absent is fail-closed, no re-POST)",
+          `receipt ${receipt.status} after a durable POST attempt; holding (fail-closed, no re-POST)`,
         );
       }
       // Rows whose earlier attempt predates the durable path (a legacy POST,
@@ -221,11 +220,7 @@ export class DeliveryWorker {
       try {
         objectId = assertObjectId(response, "POST /v1/episodic").object_id;
       } catch (error) {
-        this.#outbox.markFailed(
-          row.id,
-          `write returned an invalid envelope: ${errorMessage(error)}`,
-          false,
-        );
+        this.#deadLetter(row, `write returned an invalid envelope: ${errorMessage(error)}`);
         return;
       }
       const dedupMerge = captureDedupEvidence(response);
@@ -245,18 +240,26 @@ export class DeliveryWorker {
       // operator reading `/musubi-status` can correlate the failure
       // message back to the row id without cross-referencing timestamps.
       const detail = `row=${row.id} ${prefix}: ${errorMessage(error)}`;
-      this.#outbox.markFailed(row.id, detail, retryable, Date.now(), retryAfterMs(error));
-      // A dead-letter (retryable=false) is a terminal state for this row;
-      // a loud one-shot operator log lets the operator correlate the
-      // `dead_recent` count in `/musubi-status` with the offending
-      // payload without diving into SQLite.
-      if (!retryable) {
-        this.#logger.error(
-          `musubi: row ${row.id} dead-lettered (idempotency=${row.idem_key}): ` +
-            `${prefix}: ${errorMessage(error)}`,
-        );
+      if (retryable) {
+        this.#outbox.markFailed(row.id, detail, true, Date.now(), retryAfterMs(error));
+      } else {
+        this.#deadLetter(row, detail);
       }
     }
+  }
+
+  /**
+   * Terminal failure for one row, always paired with one operator log line.
+   * Every dead-letter goes through here, so none is silent, and the line
+   * names the agent: without it a dead capture can only be attributed by
+   * inference (2026-09-27: a dropped Codex capture could not be traced to a
+   * seat). The line carries ids only, never content.
+   */
+  #deadLetter(row: DeliveryRow, detail: string): void {
+    this.#outbox.markFailed(row.id, detail, false);
+    this.#logger.error(
+      `musubi: row ${row.id} dead-lettered (agent=${row.agent_id ?? "default"}, idempotency=${row.idem_key}): ${detail}`,
+    );
   }
 
   async #findByReceipt(row: DeliveryRow, token: string): Promise<string | undefined> {
@@ -337,11 +340,7 @@ export class DeliveryWorker {
           );
           return;
         }
-        this.#outbox.markFailed(
-          row.id,
-          `readback identity mismatch: ${mismatches.join(", ")}`,
-          false,
-        );
+        this.#deadLetter(row, `readback identity mismatch: ${mismatches.join(", ")}`);
         return;
       }
       this.#outbox.markVerified(row.id, objectId);
@@ -352,13 +351,12 @@ export class DeliveryWorker {
         return;
       }
       const grace404 = error instanceof MusubiError && error.status === 404 && row.attempts < 5;
-      this.#outbox.markFailed(
-        row.id,
-        `readback failed: ${errorMessage(error)}`,
-        grace404 || isRetryable(error),
-        Date.now(),
-        retryAfterMs(error),
-      );
+      const detail = `readback failed: ${errorMessage(error)}`;
+      if (grace404 || isRetryable(error)) {
+        this.#outbox.markFailed(row.id, detail, true, Date.now(), retryAfterMs(error));
+      } else {
+        this.#deadLetter(row, detail);
+      }
     }
   }
 

@@ -87,9 +87,11 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
 
   api.registerMemoryCapability({
     // Musubi captures every completed turn durably at agent_end, so it does not
-    // use OpenClaw's file-oriented pre-compaction flush plan. The provider's
-    // prompt contract is tool guidance, not a global cache that could leak one
-    // agent's presence into another agent's prompt.
+    // use OpenClaw's file-oriented pre-compaction flush plan. This capability
+    // prompt is static tool guidance only. Recalled memories are per-turn and
+    // per-agent: they come from the before_prompt_build hook
+    // (plugin/recall-hook.ts -> retrieval/recall.ts), never from a global cache
+    // that could leak one agent's presence into another agent's prompt.
     promptBuilder: ({ availableTools }) => buildMemoryPrompt(availableTools),
   });
 
@@ -127,7 +129,10 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
       captureDiagnostics.enqueueFailed();
       // A local enqueue failure is not allowed to break the user turn, but it
       // is loud and operator-visible. It is never described as captured.
-      api.logger.error(`musubi: agent_end capture was not queued — ${errorMessage(error)}`);
+      // The agent id (never content) makes a lost capture attributable.
+      api.logger.error(
+        `musubi: agent_end capture was not queued (agent=${ctx.agentId ?? "default"}) — ${errorMessage(error)}`,
+      );
       logCaptureDiagnostic(api, captureDiagnostics, "enqueue_failed");
     }
   });
