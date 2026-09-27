@@ -152,6 +152,7 @@ const rememberRow: DeliveryRow = {
   object_id: null,
   write_dedup_merge: null,
   request_body: null,
+  post_attempt: null,
 };
 
 describe("test_all_tools_honor_approval_hooks_when_required", () => {

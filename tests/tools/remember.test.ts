@@ -27,6 +27,7 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     object_id: null,
     write_dedup_merge: null,
     request_body: null,
+    post_attempt: null,
     ...overrides,
   };
 }

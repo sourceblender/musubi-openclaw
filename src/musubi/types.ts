@@ -46,6 +46,21 @@ export type RequestOptions = {
    */
   readonly rawBody?: string;
 
+  /**
+   * Opt this POST into Musubi's durable completed-response receipt
+   * (`Idempotency-Receipt: durable`). Requires an idempotency key. Only
+   * single-object episodic and curated capture are eligible server-side.
+   */
+  readonly durableReceipt?: boolean;
+
+  /**
+   * Send exactly once: no in-request retry on network/timeout/5xx. Required
+   * for a durable capture, whose ambiguous failure must be resolved through
+   * receipt lookup, never by re-sending (canonical-api: typed 503 holds the
+   * lease fail-closed; `absent` is not permission to re-POST).
+   */
+  readonly noRetry?: boolean;
+
   /** Query parameters appended to the URL. Coerced via `String(value)`. */
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
 

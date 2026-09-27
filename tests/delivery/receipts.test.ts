@@ -44,7 +44,7 @@ const config: MusubiConfig = {
 };
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
-type Call = { method: string; url: string; body: string | undefined };
+type Call = { method: string; url: string; body: string | undefined; receiptHeader: string | null };
 
 function makeWorker(outbox: DeliveryOutbox, route: (call: Call) => Response) {
   const calls: Call[] = [];
@@ -53,6 +53,9 @@ function makeWorker(outbox: DeliveryOutbox, route: (call: Call) => Response) {
       method: String(init?.method ?? "GET"),
       url,
       body: typeof init?.body === "string" ? init.body : undefined,
+      receiptHeader: new Headers(init?.headers as ConstructorParameters<typeof Headers>[0]).get(
+        "idempotency-receipt",
+      ),
     };
     calls.push(call);
     return route(call);
@@ -116,103 +119,127 @@ describe("captureRequestBody", () => {
   });
 });
 
-describe("DeliveryWorker receipt lookup", () => {
-  it("freezes the body on the first attempt and sends exactly those bytes", async () => {
+describe("DeliveryWorker receipt-first delivery", () => {
+  const isLookup = (c: Call) => c.url.includes("/receipts/lookup");
+  const isCapture = (c: Call) => c.method === "POST" && c.url.endsWith("/v1/episodic");
+  const accepted = (id: string) => json({ object_id: id, namespace: "aoi/command-chair/episodic" });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+  it("first attempt: lookup, mark, then ONE durable POST of the frozen bytes", async () => {
     const outbox = open();
     const row = outbox.enqueue(item());
     const { worker, calls } = makeWorker(outbox, (c) =>
-      c.url.endsWith("/v1/episodic") && c.method === "POST"
-        ? json({ object_id: "obj-1", namespace: "aoi/command-chair/episodic" })
-        : readback("obj-1"),
+      isLookup(c)
+        ? json({ status: "absent" })
+        : isCapture(c)
+          ? accepted("obj-1")
+          : readback("obj-1"),
     );
     worker.start();
     const terminal = await worker.awaitTerminal(row.id, 2000);
     await worker.stop();
-    const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"));
-    expect(post?.body).toBe(captureRequestBody(row));
-    expect(calls.some((c) => c.url.includes("/receipts/lookup"))).toBe(false);
-    expect(terminal?.state).toBe("verified");
-    expect(terminal?.request_body).toBeNull();
-    outbox.close();
-  });
-
-  it("asks the receipt table on retry and verifies a found write without re-posting", async () => {
-    const outbox = open();
-    const frozen = captureRequestBody(outbox.enqueue(item()));
-    const row = retried(outbox, frozen);
-    const { worker, calls } = makeWorker(outbox, (c) =>
-      c.url.includes("/receipts/lookup")
-        ? json({ status: "found", object_id: "obj-found" })
-        : readback("obj-found"),
+    const order = calls.map((c) =>
+      isLookup(c) ? "lookup" : isCapture(c) ? "capture" : "readback",
     );
-    worker.start();
-    const terminal = await worker.awaitTerminal(row.id, 2000);
-    await worker.stop();
-    const lookup = calls.find((c) => c.url.includes("/receipts/lookup"));
+    expect(order).toEqual(["lookup", "capture", "readback"]);
+    const lookup = calls.find(isLookup);
+    const capture = calls.find(isCapture);
     expect(JSON.parse(lookup!.body!)).toEqual({
       namespace: "aoi/command-chair/episodic",
       method: "POST",
       operation_id: CAPTURE_OPERATION_ID,
       idempotency_key: "idem-1",
-      request_digest: canonicalRequestDigest(frozen),
+      request_digest: canonicalRequestDigest(capture!.body!),
     });
-    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"))).toBe(false);
-    expect(calls.some((c) => c.url.includes("/v1/retrieve"))).toBe(false);
+    expect(capture?.body).toBe(captureRequestBody(row));
+    expect(capture?.receiptHeader).toBe("durable");
+    expect(terminal?.state).toBe("verified");
+    expect(terminal?.post_attempt).toBe("durable");
+    expect(terminal?.request_body).toBeNull();
+    outbox.close();
+  });
+
+  it("found: verifies the receipt's object without posting", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
+    const { worker, calls } = makeWorker(outbox, (c) =>
+      isLookup(c) ? json({ status: "found", object_id: "obj-found" }) : readback("obj-found"),
+    );
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+    await worker.stop();
+    expect(calls.some(isCapture)).toBe(false);
     expect(terminal?.state).toBe("verified");
     expect(terminal?.object_id).toBe("obj-found");
     outbox.close();
   });
 
-  it("re-posts the frozen bytes verbatim when the receipt is absent", async () => {
+  it("absent after a durable POST attempt: holds the row and never re-posts", async () => {
     const outbox = open();
-    // A frozen body in a DIFFERENT key order than today's serializer: the
-    // worker must replay what is stored, never re-serialise.
-    const frozen =
-      '{"tags":["source:test","openclaw:idem-idem-1"],"importance":7,"content":"durable note","namespace":"aoi/command-chair/episodic"}';
-    const row = retried(outbox, frozen);
-    const { worker, calls } = makeWorker(outbox, (c) => {
-      if (c.url.includes("/receipts/lookup")) return json({ status: "absent" });
-      if (c.method === "POST" && c.url.endsWith("/v1/episodic"))
-        return json({ object_id: "obj-new", namespace: "aoi/command-chair/episodic" });
-      return readback("obj-new");
-    });
-    worker.start();
-    const terminal = await worker.awaitTerminal(row.id, 2000);
-    await worker.stop();
-    const lookup = calls.find((c) => c.url.includes("/receipts/lookup"));
-    expect(JSON.parse(lookup!.body!).request_digest).toBe(canonicalRequestDigest(frozen));
-    const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"));
-    expect(post?.body).toBe(frozen);
-    expect(terminal?.state).toBe("verified");
-    outbox.close();
-  });
-
-  it("treats in_flight as transient: no re-post, row stays retryable", async () => {
-    const outbox = open();
-    const row = retried(outbox, captureRequestBody(outbox.enqueue(item())));
+    const row = outbox.enqueue(item());
+    outbox.freezeRequestBody(row.id, captureRequestBody(row));
+    outbox.markPostAttempted(row.id, "durable"); // a crash or lost response after this point
+    outbox.markFailed(row.id, "network", true, -1_000_000);
     const { worker, calls } = makeWorker(outbox, (c) =>
-      c.url.includes("/receipts/lookup") ? json({ status: "in_flight" }) : json({}, 500),
+      isLookup(c) ? json({ status: "absent" }) : accepted("dup"),
     );
     worker.start();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle();
     await worker.stop();
-    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"))).toBe(false);
+    expect(calls.some(isLookup)).toBe(true);
+    expect(calls.some(isCapture)).toBe(false);
     const after = outbox.row(row.id);
     expect(after?.state).toBe("pending");
-    expect(after?.last_error).toContain("in flight");
+    expect(after?.last_error).toContain("no re-POST");
     outbox.close();
   });
 
-  it("dead-letters a conflict instead of re-posting", async () => {
+  it("a failed durable POST is sent once (no in-request retry) and then held", async () => {
     const outbox = open();
-    const row = retried(outbox, captureRequestBody(outbox.enqueue(item())));
+    const row = outbox.enqueue(item());
+    let lookups = 0;
+    const { worker, calls } = makeWorker(outbox, (c) => {
+      if (isLookup(c)) {
+        lookups += 1;
+        return json({ status: "absent" });
+      }
+      return json({ detail: "upstream" }, 503);
+    });
+    worker.start();
+    await settle();
+    await worker.stop();
+    expect(calls.filter(isCapture)).toHaveLength(1);
+    const after = outbox.row(row.id);
+    expect(after?.post_attempt).toBe("durable");
+    expect(after?.state).toBe("pending");
+    expect(lookups).toBeGreaterThanOrEqual(1);
+    outbox.close();
+  });
+
+  it("in_flight is transient: no POST, row stays retryable", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
     const { worker, calls } = makeWorker(outbox, (c) =>
-      c.url.includes("/receipts/lookup") ? json({ status: "conflict" }) : json({}, 500),
+      isLookup(c) ? json({ status: "in_flight" }) : json({}, 500),
+    );
+    worker.start();
+    await settle();
+    await worker.stop();
+    expect(calls.some(isCapture)).toBe(false);
+    expect(outbox.row(row.id)?.last_error).toContain("in flight");
+    outbox.close();
+  });
+
+  it("conflict dead-letters without posting", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
+    const { worker, calls } = makeWorker(outbox, (c) =>
+      isLookup(c) ? json({ status: "conflict" }) : json({}, 500),
     );
     worker.start();
     const terminal = await worker.awaitTerminal(row.id, 2000);
     await worker.stop();
-    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"))).toBe(false);
+    expect(calls.some(isCapture)).toBe(false);
     expect(terminal?.state).toBe("dead");
     expect(terminal?.last_error).toContain("conflict");
     outbox.close();
@@ -220,32 +247,62 @@ describe("DeliveryWorker receipt lookup", () => {
 
   it("refuses an unknown lookup status rather than guessing", async () => {
     const outbox = open();
-    const row = retried(outbox, captureRequestBody(outbox.enqueue(item())));
+    const row = outbox.enqueue(item());
     const { worker, calls } = makeWorker(outbox, (c) =>
-      c.url.includes("/receipts/lookup") ? json({ status: "maybe" }) : json({}, 500),
+      isLookup(c) ? json({ status: "maybe" }) : json({}, 500),
     );
     worker.start();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle();
     await worker.stop();
-    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/episodic"))).toBe(false);
+    expect(calls.some(isCapture)).toBe(false);
     expect(outbox.row(row.id)?.last_error).toContain("unknown status");
     outbox.close();
   });
 
-  it("freezes a pre-upgrade retried row with the pre-freeze serialisation", async () => {
+  it("an older server without the receipt route gets a legacy POST (no durable header)", async () => {
     const outbox = open();
-    const row = retried(outbox); // request_body NULL, attempts > 0: enqueued before the upgrade
+    const row = outbox.enqueue(item());
+    const { worker, calls } = makeWorker(outbox, (c) =>
+      isLookup(c)
+        ? json({ detail: "Not Found" }, 404)
+        : isCapture(c)
+          ? accepted("obj-l")
+          : readback("obj-l"),
+    );
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+    await worker.stop();
+    expect(calls.find(isCapture)?.receiptHeader).toBeNull();
+    expect(terminal?.post_attempt).toBe("legacy");
+    expect(terminal?.state).toBe("verified");
+    outbox.close();
+  });
+
+  it("a pre-upgrade retried row keeps the receipt-tag recovery before any POST", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
+    outbox.markFailed(row.id, "network", true, -1_000_000); // attempts > 0, no frozen body, no marker
     const expected = captureRequestBody(row);
     const { worker, calls } = makeWorker(outbox, (c) => {
-      if (c.url.includes("/receipts/lookup"))
-        return json({ status: "found", object_id: "obj-old" });
-      return readback("obj-old");
+      if (isLookup(c)) return json({ status: "absent" });
+      if (c.url.includes("/v1/retrieve"))
+        return json({
+          mode: "recent",
+          limit: 50,
+          warnings: [],
+          results: [{ object_id: "obj-legacy" }],
+        });
+      return readback("obj-legacy");
     });
     worker.start();
-    await worker.awaitTerminal(row.id, 2000);
+    const terminal = await worker.awaitTerminal(row.id, 2000);
     await worker.stop();
-    const lookup = calls.find((c) => c.url.includes("/receipts/lookup"));
-    expect(JSON.parse(lookup!.body!).request_digest).toBe(canonicalRequestDigest(expected));
+    expect(JSON.parse(calls.find(isLookup)!.body!).request_digest).toBe(
+      canonicalRequestDigest(expected),
+    );
+    expect(calls.some(isCapture)).toBe(false);
+    expect(terminal?.object_id).toBe("obj-legacy");
+    expect(terminal?.state).toBe("verified");
     outbox.close();
   });
 });

@@ -47,6 +47,19 @@ const config: MusubiConfig = {
 
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
+/**
+ * Receipt-first delivery asks `/v1/idempotency/receipts/lookup` before every
+ * send. These worker tests predate that and model only the capture/readback
+ * server; answer the lookup with "no committed receipt yet" so each test's
+ * own call log and assertions still describe the path it was written for.
+ */
+function noReceiptYet(inner: FetchLike): FetchLike {
+  return async (url, init) =>
+    url.includes("/v1/idempotency/receipts/lookup")
+      ? new Response(JSON.stringify({ status: "absent" }), { status: 200 })
+      : inner(url, init);
+}
+
 describe("DeliveryOutbox", () => {
   it("commits and reads back one stable idempotency row", () => {
     const { outbox } = open();
@@ -118,7 +131,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -151,7 +168,11 @@ describe("DeliveryWorker", () => {
     const row = outbox.enqueue(item());
     outbox.markAccepted(row.id, "obj-1");
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -182,7 +203,11 @@ describe("DeliveryWorker", () => {
     const reopened = new DeliveryOutbox(path);
     expect(reopened.row(row.id)?.write_dedup_merge).toBe(1);
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox: reopened,
       logger,
@@ -199,7 +224,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -217,7 +246,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -245,7 +278,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -281,7 +318,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -314,7 +355,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -348,7 +393,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -381,7 +430,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -404,7 +457,11 @@ describe("DeliveryWorker", () => {
     const row = outbox.enqueue(item());
     outbox.markFailed(row.id, "network", true, -1_000_000);
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,
@@ -437,7 +494,11 @@ describe("DeliveryWorker", () => {
     const { outbox } = open();
     outbox.enqueue(item());
     const worker = new DeliveryWorker({
-      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: noReceiptYet(fetch),
+      }),
       config,
       outbox,
       logger,

@@ -46,6 +46,16 @@ export type DeliveryRow = {
    * harmless field-order change into a 409. Cleared with `content` on verify.
    */
   readonly request_body: string | null;
+  /**
+   * Durable marker written BEFORE a capture POST leaves the process.
+   * `durable`: a POST carrying `Idempotency-Receipt: durable` may have
+   * reached the server, so a later `absent` lookup is NOT permission to
+   * re-POST (canonical-api: absent is fail-closed until orphan
+   * reconciliation lands). `legacy`: a POST without the durable header
+   * (server predates the receipt API). NULL: no POST recorded; rows enqueued
+   * before this column existed are treated by `attempts` (see worker).
+   */
+  readonly post_attempt: "durable" | "legacy" | null;
 };
 
 export type OutboxHealth = {
@@ -130,7 +140,8 @@ export class DeliveryOutbox {
         state TEXT NOT NULL DEFAULT 'pending',
         object_id TEXT,
         write_dedup_merge INTEGER,
-        request_body TEXT
+        request_body TEXT,
+        post_attempt TEXT
       );
       CREATE INDEX IF NOT EXISTS ix_delivery_outbox_ready
         ON delivery_outbox(state, next_try_at_ms);
@@ -157,6 +168,9 @@ export class DeliveryOutbox {
     }
     if (!columns.has("request_body")) {
       this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN request_body TEXT");
+    }
+    if (!columns.has("post_attempt")) {
+      this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN post_attempt TEXT");
     }
     // Backfill on EVERY pass, not just the one that adds the column. The
     // ALTER and this UPDATE are separate statements, so a process that died
@@ -333,6 +347,19 @@ export class DeliveryOutbox {
       .get(id) as { request_body: string | null } | undefined;
     if (!stored?.request_body) throw new Error(`outbox row ${id} has no frozen request body`);
     return stored.request_body;
+  }
+
+  /**
+   * Record, durably and BEFORE sending, that a capture POST is about to
+   * leave the process. Never downgraded: once `durable`, always `durable`.
+   */
+  markPostAttempted(id: number, mode: "durable" | "legacy"): void {
+    this.#db
+      .prepare(
+        `UPDATE delivery_outbox SET post_attempt = ?
+         WHERE id = ? AND (post_attempt IS NULL OR (post_attempt = 'legacy' AND ? = 'durable'))`,
+      )
+      .run(mode, id, mode);
   }
 
   markAccepted(id: number, objectId: string, dedupMerge?: boolean): void {
