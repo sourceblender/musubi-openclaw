@@ -106,6 +106,11 @@ export const MusubiConfigSchema = Type.Object(
         {
           completedTurns: Type.Optional(Type.Boolean()),
           skipSessionKeys: Type.Optional(Type.Array(NonBlankString)),
+          /**
+           * Scheduled (cron) runs are machine cadence, not lived experience, so
+           * they are skipped by default. Set true to capture them.
+           */
+          captureCronSessions: Type.Optional(Type.Boolean()),
           /** Deprecated alias for completedTurns. */
           mirrorOpenClawMemory: Type.Optional(Type.Boolean()),
         },

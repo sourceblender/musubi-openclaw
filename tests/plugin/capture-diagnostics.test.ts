@@ -38,7 +38,11 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function config(capture?: { completedTurns?: boolean; skipSessionKeys?: string[] }) {
+function config(capture?: {
+  completedTurns?: boolean;
+  skipSessionKeys?: string[];
+  captureCronSessions?: boolean;
+}) {
   return {
     core: {
       baseUrl: "https://musubi.test",
@@ -123,6 +127,7 @@ describe("passive capture diagnostics", () => {
         messages_missing: 1,
         assistant_missing: 1,
         heartbeat_poll: 0,
+        cron_session: 0,
       },
       lastObservedAtMs: expect.any(Number),
       lastEnqueuedAtMs: null,
@@ -191,6 +196,67 @@ describe("passive capture diagnostics", () => {
         translated: 1,
         enqueued: 1,
         skipped: { session_filtered: 1 },
+      });
+    } finally {
+      await getService().stop();
+    }
+  });
+
+  it("skips OpenClaw cron runs by default and captures them only when opted in", async () => {
+    const event = {
+      messages: [
+        { role: "user", content: "scheduled check" },
+        { role: "assistant", content: "done" },
+      ],
+    };
+    const cronKey = "agent:aoi:cron:0f7c2c7e-5b7e-4d0a-9d55-2a8f0c1b6e11";
+
+    for (const [captureCronSessions, expected] of [
+      [undefined, { translated: 0, enqueued: 0, cron: 1 }],
+      [true, { translated: 1, enqueued: 1, cron: 0 }],
+    ] as const) {
+      getProcessCaptureDiagnostics().reset();
+      const { api, getHandler, getService } = makeApi();
+      const registered = registerResolved({
+        api,
+        rawConfig: config(captureCronSessions === undefined ? undefined : { captureCronSessions }),
+      });
+      const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-cron-skip-"));
+      roots.push(stateDir);
+      await getService().start({ stateDir });
+      try {
+        await getHandler()(event, { agentId: "aoi", sessionKey: cronKey });
+        expect(registered.captureDiagnostics.snapshot()).toMatchObject({
+          observed: 1,
+          translated: expected.translated,
+          enqueued: expected.enqueued,
+          skipped: { cron_session: expected.cron, session_filtered: 0 },
+        });
+      } finally {
+        await getService().stop();
+      }
+    }
+  });
+
+  it("still captures the same agent's non-cron sessions under the default", async () => {
+    const { api, getHandler, getService } = makeApi();
+    const registered = registerResolved({ api, rawConfig: config() });
+    const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-cron-keep-"));
+    roots.push(stateDir);
+    await getService().start({ stateDir });
+    const event = {
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi" },
+      ],
+    };
+    try {
+      await getHandler()(event, { agentId: "aoi", sessionKey: "agent:aoi:discord:channel:42" });
+      await getHandler()(event, { agentId: "aoi", sessionKey: "agent:aoi:peer:aoi:yua" });
+      expect(registered.captureDiagnostics.snapshot()).toMatchObject({
+        observed: 2,
+        enqueued: 2,
+        skipped: { cron_session: 0 },
       });
     } finally {
       await getService().stop();
