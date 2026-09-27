@@ -83,14 +83,6 @@ const readback = (objectId: string, content = "durable note") =>
     tags: ["openclaw:idem-idem-1"],
   });
 
-/** Put a row into "a previous attempt may have reached the server" state. */
-function retried(outbox: DeliveryOutbox, frozen?: string) {
-  const row = outbox.enqueue(item());
-  if (frozen !== undefined) outbox.freezeRequestBody(row.id, frozen);
-  outbox.markFailed(row.id, "network", true, -1_000_000);
-  return row;
-}
-
 describe("canonicalRequestDigest", () => {
   it("matches Musubi's canonical_digest byte-for-byte (vector computed by the harness's Python)", () => {
     const body =
