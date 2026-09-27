@@ -55,6 +55,9 @@ describe("native OpenClaw installation", () => {
       const runtime = JSON.parse(inspect.stdout);
       expect(runtime.plugin.status).toBe("loaded");
       expect(runtime.plugin.kind).toBe("memory");
+      expect(runtime.plugin.toolNames).toEqual(
+        expect.arrayContaining(["memory_search", "memory_get", "memory_store"]),
+      );
       expect(runtime.typedHooks).toEqual(expect.arrayContaining([{ name: "agent_end" }]));
       expect(runtime.typedHooks).toEqual(expect.arrayContaining([{ name: "before_prompt_build" }]));
     } finally {
