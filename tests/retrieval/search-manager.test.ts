@@ -253,6 +253,41 @@ describe("status and probes", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("probes with each agent's own token and never shares one agent's cached health", async () => {
+    const auths: Array<string | null> = [];
+    const fetch: FetchLike = async (_url, init) => {
+      auths.push(
+        new Headers(init?.headers as ConstructorParameters<typeof Headers>[0]).get("authorization"),
+      );
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          components: { qdrant: { healthy: true }, "tei-dense": { healthy: true } },
+        }),
+        { status: 200 },
+      );
+    };
+    const client = new MusubiClient({
+      baseUrl: "https://musubi.test",
+      token: "t",
+      fetch,
+      sleep: async () => undefined,
+    });
+    const config: MusubiConfig = {
+      core: {
+        baseUrl: "https://musubi.test",
+        token: "t",
+        perAgentTokens: { aoi: "aoi-token", yua: "yua-token" },
+      },
+      presence: { defaultId: "eric/openclaw", perAgent: { aoi: "eric/aoi", yua: "eric/yua" } },
+    };
+    const factory = createMusubiSearchManager({ client, config, now: () => 5_000 });
+    await factory("aoi")!.probeEmbeddingAvailability();
+    const yua = await factory("yua")!.probeEmbeddingAvailability();
+    expect(auths).toEqual(["Bearer aoi-token", "Bearer yua-token"]);
+    expect(yua.cached).toBe(false);
+  });
+
   it("parseVirtualPath rejects anything but musubi/<owner>/<presence>/<plane>/<id>", () => {
     expect(parseVirtualPath("musubi/eric/aoi/episodic/m1")).toEqual({
       owner: "eric",

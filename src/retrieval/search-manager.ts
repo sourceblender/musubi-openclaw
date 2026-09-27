@@ -2,8 +2,11 @@
  * Musubi-backed OpenClaw MemorySearchManager — the Musubi half of the memory
  * capability's `runtime.getMemorySearchManager()`.
  *
- * OpenClaw's own memory surfaces (status, CLI search, the tool path) call a
- * search manager. The contract is file-shaped (paths, line ranges,
+ * OpenClaw's ACTIVE memory path calls this: `getActiveMemorySearchManagerCore`
+ * (memory-runtime) resolves `slots.memory` and calls the owning plugin's
+ * `runtime.getMemorySearchManager`. Not every host surface does: in 2026.9.4
+ * the `openclaw memory` CLI builds the builtin `MemoryIndexManager` directly,
+ * so no plugin reaches that route. The contract is file-shaped (paths, line ranges,
  * `readFile(relPath)`); Musubi stores objects, so each object is exposed at a
  * virtual path `musubi/<owner>/<presence>/<plane>/<object_id>`, which is its
  * canonical namespace plus id under a `musubi/` root.
@@ -79,34 +82,39 @@ export function createMusubiSearchManager(
 ): (agentId: string) => OpenClawMemorySearchManager | null {
   const { client, config, logger } = options;
   const now = options.now ?? Date.now;
-  let probe: { at: number; ok: boolean; vector: boolean; error?: string } | undefined;
-
-  async function probeService(): Promise<NonNullable<typeof probe>> {
-    const at = now();
-    if (probe && at - probe.at < PROBE_CACHE_MS) return probe;
-    try {
-      const status = await client.get<{
-        status?: unknown;
-        components?: Record<string, { healthy?: unknown }>;
-      }>("/v1/ops/status");
-      const qdrant = status?.components?.qdrant?.healthy === true;
-      const dense = status?.components?.["tei-dense"]?.healthy === true;
-      probe = { at, ok: status?.status === "ok" && dense, vector: qdrant };
-    } catch (error) {
-      probe = { at, ok: false, vector: false, error: errorMessage(error) };
-    }
-    return probe;
-  }
-
   return (agentId: string) => {
     if (!agentId || !recallIdentityIsExplicit(config, agentId)) return null;
     let owner: string;
+    let token: string;
     try {
-      owner = resolvePresence(config, { agentId, strict: true }).presence.split("/", 1)[0] ?? "";
+      const resolved = resolvePresence(config, { agentId, strict: true });
+      owner = resolved.presence.split("/", 1)[0] ?? "";
+      token = resolved.token;
     } catch {
       return null;
     }
     if (!owner) return null;
+
+    // Per-manager, per-agent probe cache, called with THIS agent's token: one
+    // agent must never read another agent's cached health, and a probe is
+    // only evidence for the credential that made it.
+    let probe: { at: number; ok: boolean; vector: boolean; error?: string } | undefined;
+    async function probeService(): Promise<NonNullable<typeof probe>> {
+      const at = now();
+      if (probe && at - probe.at < PROBE_CACHE_MS) return probe;
+      try {
+        const status = await client.get<{
+          status?: unknown;
+          components?: Record<string, { healthy?: unknown }>;
+        }>("/v1/ops/status", { token });
+        const qdrant = status?.components?.qdrant?.healthy === true;
+        const dense = status?.components?.["tei-dense"]?.healthy === true;
+        probe = { at, ok: status?.status === "ok" && dense, vector: qdrant };
+      } catch (error) {
+        probe = { at, ok: false, vector: false, error: errorMessage(error) };
+      }
+      return probe;
+    }
 
     const manager: OpenClawMemorySearchManager = {
       async search(query, opts) {
