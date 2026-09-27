@@ -111,9 +111,10 @@ export function createPromptRecall(options: CreatePromptRecallOptions): PromptRe
     if (signal?.aborted) return null;
     // All or nothing, for the same reason a degraded retrieve returns null:
     // showing the rows that happened to date successfully could omit the
-    // one memory that contradicts them. One failed date GET, or one strong
-    // row that came back without a valid source date, withholds the block.
-    if (dated.warnings.length > 0) return null;
+    // one memory that contradicts them. One strong row without a valid
+    // source date withholds the block. This also covers every date warning:
+    // `withDates` only warns when it could not date a row (failed GET or
+    // unsupported plane), and such a row reaches this check undated.
     if (dated.rows.some((row) => sourceDate(row) === undefined)) return null;
     return formatRecall(dated.rows);
   };

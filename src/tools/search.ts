@@ -1,12 +1,7 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { type DatedRow, withDates } from "../retrieval/dates.js";
-import {
-  errorMessage,
-  guardedRetrieve,
-  type MusubiRetrieveRow,
-  STRONG_MATCH_MIN_SCORE,
-} from "../retrieval/guarded.js";
+import { guardedRetrieve, STRONG_MATCH_MIN_SCORE } from "../retrieval/guarded.js";
 import { SearchParameters, type SearchParams } from "./parameters.js";
 
 /**
