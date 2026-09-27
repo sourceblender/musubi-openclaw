@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.1.0](https://github.com/sourceblender/musubi-openclaw/compare/v2.0.11...v2.1.0) (2026-09-27)
+
+
+### Features
+
+* **capture:** skip OpenClaw cron runs by default ([#11](https://github.com/sourceblender/musubi-openclaw/issues/11)) ([e0baea1](https://github.com/sourceblender/musubi-openclaw/commit/e0baea1de1ef0154311a18dd142154970d456106))
+* **delivery:** authoritative receipt lookup over frozen request bytes ([#5](https://github.com/sourceblender/musubi-openclaw/issues/5)) ([f27f879](https://github.com/sourceblender/musubi-openclaw/commit/f27f879d5e266876c309e6cd8782c3d469285e06))
+* **openclaw:** native per-turn Musubi memory recall ([#4](https://github.com/sourceblender/musubi-openclaw/issues/4)) ([b2a7d18](https://github.com/sourceblender/musubi-openclaw/commit/b2a7d18bdd18039e0b224fea6afabd8795f3df55))
+* **recall:** scoped automatic prompt recall behind one shared identity boundary ([#3](https://github.com/sourceblender/musubi-openclaw/issues/3)) ([b819cf7](https://github.com/sourceblender/musubi-openclaw/commit/b819cf7b239816ad780d341533e3e19c1994da73))
+* **search-manager:** Musubi-backed OpenClaw MemorySearchManager for capability.runtime ([#9](https://github.com/sourceblender/musubi-openclaw/issues/9)) ([65e1645](https://github.com/sourceblender/musubi-openclaw/commit/65e1645648d9cfc22655ff73cb668123a7696fbe))
+* wire Musubi into active OpenClaw memory runtime ([#10](https://github.com/sourceblender/musubi-openclaw/issues/10)) ([57c233a](https://github.com/sourceblender/musubi-openclaw/commit/57c233aef4413a222e29d0755cf6784acde33f94))
+
+
+### Bug Fixes
+
+* **diagnostics:** no silent dead-letters; name the agent on every terminal failure ([#6](https://github.com/sourceblender/musubi-openclaw/issues/6)) ([a6733b9](https://github.com/sourceblender/musubi-openclaw/commit/a6733b962a056f47309456c2d0ed1f205431c44c))
+* register provider-neutral memory aliases ([#80](https://github.com/sourceblender/musubi-openclaw/issues/80)) ([#7](https://github.com/sourceblender/musubi-openclaw/issues/7)) ([26beafe](https://github.com/sourceblender/musubi-openclaw/commit/26beafe2ce364e008c3c4a591fb896ac1dcbefcf))
+
 ## [Unreleased]
 
 ### Pending
