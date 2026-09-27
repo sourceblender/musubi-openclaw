@@ -34,6 +34,24 @@ function acceptedDelivery(): DeliveryController {
 }
 
 describe("runDeepDoctor", () => {
+  it("refuses an unmapped agent before enqueueing a default-presence diagnostic", async () => {
+    let enqueued = false;
+    const fakeDelivery = {
+      enqueueExplicit: () => {
+        enqueued = true;
+      },
+    } as unknown as DeliveryController;
+    await expect(
+      runDeepDoctor({
+        client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default" }),
+        config,
+        delivery: fakeDelivery,
+        agentId: "rin",
+      }),
+    ).rejects.toThrow(/no presence mapping/u);
+    expect(enqueued).toBe(false);
+  });
+
   it("proves durable delivery, semantic retrieval, and cleanup through the real client", async () => {
     const calls: string[] = [];
     const fetch: FetchLike = async (url, init) => {
