@@ -13,7 +13,7 @@ type Event =
   | { kind: "tool"; value: unknown; options: unknown }
   | { kind: "hook"; name: string; value: unknown }
   | { kind: "service"; value: unknown }
-  | { kind: "gateway"; name: string }
+  | { kind: "gateway"; name: string; value: unknown; options: unknown }
   | { kind: "command"; value: unknown }
   | { kind: "cli" };
 
@@ -38,8 +38,8 @@ function makeApi() {
     registerService(value: unknown) {
       events.push({ kind: "service", value });
     },
-    registerGatewayMethod(name: string) {
-      events.push({ kind: "gateway", name });
+    registerGatewayMethod(name: string, value: unknown, options: unknown) {
+      events.push({ kind: "gateway", name, value, options });
     },
     registerCommand(value: unknown) {
       events.push({ kind: "command", value });
@@ -175,6 +175,7 @@ describe("registerMusubi", () => {
     ]);
     expect(events.filter((event) => event.kind === "gateway")).toMatchObject([
       { kind: "gateway", name: "musubi.status" },
+      { kind: "gateway", name: "musubi.doctor", options: { scope: "operator.write" } },
     ]);
     expect(events.some((event) => event.kind === "command")).toBe(true);
     expect(events.some((event) => event.kind === "cli")).toBe(true);
@@ -197,6 +198,27 @@ describe("registerMusubi", () => {
       "musubi_search",
       "musubi_think",
     ]);
+  });
+
+  it("rejects invalid gateway doctor agent ids before a diagnostic write", async () => {
+    const { api, events } = makeApi();
+    registerMusubi({ api, rawConfig: config() });
+    const registration = events.find(
+      (event): event is Extract<Event, { kind: "gateway" }> =>
+        event.kind === "gateway" && event.name === "musubi.doctor",
+    );
+    expect(registration).toBeDefined();
+    const respond = vi.fn();
+    await (
+      registration!.value as (request: {
+        params: unknown;
+        respond: typeof respond;
+      }) => Promise<void>
+    )({ params: { agentId: " " }, respond });
+    expect(respond).toHaveBeenCalledWith(false, undefined, {
+      code: "INVALID_REQUEST",
+      message: "agentId must be a non-empty string",
+    });
   });
 
   it("materializes provider-neutral memory aliases under their registered names", () => {

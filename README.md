@@ -116,9 +116,16 @@ npm run lint
 npm test
 npm run build
 openclaw plugins inspect musubi --runtime --json
-openclaw musubi-status
-openclaw musubi-doctor --agent vesper
+openclaw gateway call musubi.status --json
+openclaw gateway call musubi.doctor --params '{"agentId":"vesper"}' --timeout 30000 --json
 ```
+
+The Gateway commands run against the active plugin, where OpenClaw has
+materialized configured SecretRefs. Plugin CLI commands such as
+`openclaw musubi-doctor --agent vesper` are available only when the CLI process
+receives materialized token strings; an unresolved SecretRef makes CLI preview
+inert by design. `musubi.doctor` requires `operator.write` because it creates
+and archives a diagnostic memory.
 
 The loader-backed test runs a built artifact through OpenClaw 2026.9.4 with
 `plugins.slots.memory = "musubi"`; it checks the manifest-owned memory kind,
