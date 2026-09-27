@@ -26,7 +26,7 @@ describe("current-state documentation and runtime parity", () => {
     );
     expect(pkg.peerDependencies?.openclaw).toBe(">=2026.7.1");
     expect(pkg.openclaw?.compat?.pluginApi).toBe(">=2026.7.1");
-    expect(pkg.openclaw?.build?.openclawVersion).toBe("2026.9.4");
+    expect(pkg.openclaw?.build?.openclawVersion).toBe("2026.9.6");
   });
 
   it("marks the former architecture as historical and indexes the replacement", () => {

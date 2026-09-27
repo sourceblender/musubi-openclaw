@@ -5,17 +5,26 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+
+import { packPluginForHostTest } from "./packed-plugin.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const roots: string[] = [];
+let packed: ReturnType<typeof packPluginForHostTest>;
+
+beforeAll(() => {
+  packed = packPluginForHostTest(repoRoot);
+});
+
+afterAll(() => packed?.cleanup());
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("OpenClaw loader acceptance", () => {
-  it("loads Musubi as the selected memory capability through the real 2026.9.4 loader", () => {
+  it("loads Musubi as the selected memory capability through the real 2026.9.6 loader", () => {
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-loader-"));
     roots.push(stateDir);
     const configPath = join(stateDir, "openclaw.json");
@@ -24,7 +33,7 @@ describe("OpenClaw loader acceptance", () => {
       JSON.stringify({
         plugins: {
           allow: ["musubi"],
-          load: { paths: [repoRoot] },
+          load: { paths: [packed.pluginRoot] },
           slots: { memory: "musubi" },
           entries: {
             musubi: {
@@ -96,7 +105,7 @@ describe("OpenClaw loader acceptance", () => {
         JSON.stringify({
           plugins: {
             allow: ["musubi"],
-            load: { paths: [repoRoot] },
+            load: { paths: [packed.pluginRoot] },
             slots: { memory: "musubi" },
             entries: {
               musubi: {
@@ -147,7 +156,7 @@ describe("OpenClaw loader acceptance", () => {
         gateway: { mode: "local", bind: "loopback", auth: { mode: "none" } },
         plugins: {
           allow: ["musubi"],
-          load: { paths: [repoRoot] },
+          load: { paths: [packed.pluginRoot] },
           slots: { memory: "musubi" },
           entries: {
             musubi: {

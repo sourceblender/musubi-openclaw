@@ -4,10 +4,19 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { packPluginForHostTest } from "./packed-plugin.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const openclaw = resolve(repoRoot, "node_modules/.bin/openclaw");
+let packed: ReturnType<typeof packPluginForHostTest>;
+
+beforeAll(() => {
+  packed = packPluginForHostTest(repoRoot);
+});
+
+afterAll(() => packed?.cleanup());
 
 describe("native OpenClaw installation", () => {
   it("installs from a local plugin directory, then activates as the memory slot", () => {
@@ -26,12 +35,12 @@ describe("native OpenClaw installation", () => {
       writeFileSync(configPath, "{}");
       const install = spawnSync(
         openclaw,
-        ["plugins", "install", "-l", repoRoot, "--force", "--accept-capabilities"],
+        ["plugins", "install", "-l", packed.pluginRoot, "--force", "--accept-capabilities"],
         { cwd: repoRoot, env, encoding: "utf8" },
       );
       expect(install.status, `${install.stdout}\n${install.stderr}`).toBe(0);
       const saved = JSON.parse(readFileSync(configPath, "utf8"));
-      expect(saved.plugins.load.paths).toContain(repoRoot);
+      expect(saved.plugins.load.paths).toContain(packed.pluginRoot);
       expect(saved.plugins.entries.musubi.enabled).toBe(false);
 
       saved.plugins.allow = ["musubi"];
