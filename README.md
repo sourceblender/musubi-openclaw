@@ -31,7 +31,7 @@ disguised as delivery.
 
 ## Requirements
 
-- OpenClaw `>= 2026.7.1` (the repository gate runs against `2026.9.4`)
+- OpenClaw `>= 2026.7.1` (the repository gate runs against `2026.9.6`)
 - Node.js `>= 24.16.0 <25` or `>= 26.1.0`
 - A reachable Musubi core with canonical episodic and retrieval APIs
 
@@ -48,8 +48,14 @@ repository is its source of truth.
 ```bash
 npm ci
 npm run build
+npm prune --omit=dev --legacy-peer-deps
 openclaw plugins install -l "$PWD" --force --accept-capabilities
 ```
+
+Prune before linking a development checkout: OpenClaw 2026.9.6 treats its own
+bundled plugins inside this package's `node_modules` as conflicting children of
+Musubi. The prune keeps runtime dependencies and removes the development-only
+OpenClaw host. A published npm package already has this production layout.
 
 Configure `plugins.allow` to include `musubi`, set
 `plugins.entries.musubi.enabled: true`, and select
@@ -143,7 +149,7 @@ provider as `openai` even when `plugins.slots.memory` selects Musubi. Use
 `musubi.status` and `musubi.doctor` for Musubi health until that host CLI route
 uses the selected capability.
 
-The loader-backed test runs a built artifact through OpenClaw 2026.9.4 with
+The loader-backed test runs a packed artifact through OpenClaw 2026.9.6 with
 `plugins.slots.memory = "musubi"`; it checks the manifest-owned memory kind,
 exclusive capability, tools, and conversation-hook registration.
 
