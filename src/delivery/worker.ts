@@ -167,10 +167,10 @@ export class DeliveryWorker {
       if (receipt.status === "conflict") {
         // Same Idempotency-Key, different request bytes. Resending cannot
         // succeed and would never be a replay; this row needs an operator.
-        this.#outbox.markFailed(
-          row.id,
+        this.#deadLetter(
+          row,
           "receipt lookup: idempotency key already used with a different request (conflict)",
-          false,
+          "receipt_conflict",
         );
         return;
       }
@@ -183,7 +183,7 @@ export class DeliveryWorker {
         // not turn a possibly-committed durable write into a legacy re-POST.
         // Hold the row and keep asking; never send twice.
         throw new TransientDeliveryError(
-          "receipt absent after a durable POST attempt; holding (absent is fail-closed, no re-POST)",
+          `receipt ${receipt.status} after a durable POST attempt; holding (fail-closed, no re-POST)`,
         );
       }
       // Rows whose earlier attempt predates the durable path (a legacy POST,
@@ -221,10 +221,11 @@ export class DeliveryWorker {
       try {
         objectId = assertObjectId(response, "POST /v1/episodic").object_id;
       } catch (error) {
-        this.#outbox.markFailed(
-          row.id,
+        this.#deadLetter(
+          row,
           `write returned an invalid envelope: ${errorMessage(error)}`,
-          false,
+          "invalid_capture_envelope",
+          error,
         );
         return;
       }
@@ -245,18 +246,36 @@ export class DeliveryWorker {
       // operator reading `/musubi-status` can correlate the failure
       // message back to the row id without cross-referencing timestamps.
       const detail = `row=${row.id} ${prefix}: ${errorMessage(error)}`;
-      this.#outbox.markFailed(row.id, detail, retryable, Date.now(), retryAfterMs(error));
-      // A dead-letter (retryable=false) is a terminal state for this row;
-      // a loud one-shot operator log lets the operator correlate the
-      // `dead_recent` count in `/musubi-status` with the offending
-      // payload without diving into SQLite.
-      if (!retryable) {
-        this.#logger.error(
-          `musubi: row ${row.id} dead-lettered (idempotency=${row.idem_key}): ` +
-            `${prefix}: ${errorMessage(error)}`,
-        );
+      if (retryable) {
+        this.#outbox.markFailed(row.id, detail, true, Date.now(), retryAfterMs(error));
+      } else {
+        this.#deadLetter(row, detail, "delivery_failed", error);
       }
     }
+  }
+
+  /**
+   * Terminal failure for one row, always paired with one operator log line.
+   * Every dead-letter goes through here, so none is silent, and the line
+   * names the agent: without it a dead capture can only be attributed by
+   * inference (2026-09-27: a dropped Codex capture could not be traced to a
+   * seat).
+   *
+   * The LOG LINE carries only ids and fixed labels: agent, idempotency key, a
+   * reason from a closed set, the HTTP status and the error class. Never the
+   * error message: a Musubi 4xx maps the server's response body into
+   * ClientError.message, and a server that echoes the request would put
+   * capture content in the log. The full `detail` still goes to the row's
+   * `last_error` in the local ledger (read via /musubi-status), as before.
+   */
+  #deadLetter(row: DeliveryRow, detail: string, reason: DeadLetterReason, error?: unknown): void {
+    this.#outbox.markFailed(row.id, detail, false);
+    const status =
+      error instanceof MusubiError && error.status !== undefined ? `, status=${error.status}` : "";
+    const kind = error instanceof Error ? `, error=${error.name}` : "";
+    this.#logger.error(
+      `musubi: row ${row.id} dead-lettered (agent=${row.agent_id ?? "default"}, idempotency=${row.idem_key}, reason=${reason}${status}${kind})`,
+    );
   }
 
   async #findByReceipt(row: DeliveryRow, token: string): Promise<string | undefined> {
@@ -337,10 +356,10 @@ export class DeliveryWorker {
           );
           return;
         }
-        this.#outbox.markFailed(
-          row.id,
+        this.#deadLetter(
+          row,
           `readback identity mismatch: ${mismatches.join(", ")}`,
-          false,
+          "readback_identity_mismatch",
         );
         return;
       }
@@ -352,13 +371,12 @@ export class DeliveryWorker {
         return;
       }
       const grace404 = error instanceof MusubiError && error.status === 404 && row.attempts < 5;
-      this.#outbox.markFailed(
-        row.id,
-        `readback failed: ${errorMessage(error)}`,
-        grace404 || isRetryable(error),
-        Date.now(),
-        retryAfterMs(error),
-      );
+      const detail = `readback failed: ${errorMessage(error)}`;
+      if (grace404 || isRetryable(error)) {
+        this.#outbox.markFailed(row.id, detail, true, Date.now(), retryAfterMs(error));
+      } else {
+        this.#deadLetter(row, detail, "readback_failed", error);
+      }
     }
   }
 
@@ -418,6 +436,14 @@ export function captureRequestBody(row: DeliveryRow): string {
     tags: [...parseTags(row.tags_json), `${RECEIPT_TAG_PREFIX}${row.idem_key}`],
   });
 }
+
+/** Closed set of dead-letter reasons: the only free text a dead-letter log line may carry. */
+export type DeadLetterReason =
+  | "receipt_conflict"
+  | "invalid_capture_envelope"
+  | "delivery_failed"
+  | "readback_identity_mismatch"
+  | "readback_failed";
 
 export class TransientDeliveryError extends Error {
   constructor(message: string) {

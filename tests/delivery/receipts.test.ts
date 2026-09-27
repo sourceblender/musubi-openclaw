@@ -46,7 +46,11 @@ const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
 type Call = { method: string; url: string; body: string | undefined; receiptHeader: string | null };
 
-function makeWorker(outbox: DeliveryOutbox, route: (call: Call) => Response) {
+function makeWorker(
+  outbox: DeliveryOutbox,
+  route: (call: Call) => Response,
+  log: { error: string[] } = { error: [] },
+) {
   const calls: Call[] = [];
   const fetch: FetchLike = async (url, init) => {
     const call = {
@@ -69,9 +73,9 @@ function makeWorker(outbox: DeliveryOutbox, route: (call: Call) => Response) {
     }),
     config,
     outbox,
-    logger,
+    logger: { ...logger, error: (m: string) => log.error.push(m) },
   });
-  return { worker, calls };
+  return { worker, calls, log };
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -259,6 +263,64 @@ describe("DeliveryWorker receipt-first delivery", () => {
     expect(calls.some(isCapture)).toBe(false);
     expect(terminal?.state).toBe("dead");
     expect(terminal?.last_error).toContain("conflict");
+    outbox.close();
+  });
+
+  it("a conflict dead-letter is never silent and names the agent, not the content", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item({ content: "PRIVATE-CONTENT" }));
+    const { worker, log } = makeWorker(outbox, (c) =>
+      isLookup(c) ? json({ status: "conflict" }) : json({}, 500),
+    );
+    worker.start();
+    await worker.awaitTerminal(row.id, 2000);
+    await worker.stop();
+    expect(log.error).toHaveLength(1);
+    expect(log.error[0]).toContain(
+      "dead-lettered (agent=aoi, idempotency=idem-1, reason=receipt_conflict)",
+    );
+    expect(log.error[0]).not.toContain("PRIVATE-CONTENT");
+    outbox.close();
+  });
+
+  it("a 4xx that echoes the request never puts server text in the log line", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item({ content: "PRIVATE-CONTENT" }));
+    const { worker, log } = makeWorker(outbox, (c) =>
+      isLookup(c)
+        ? json({ status: "absent" })
+        : isCapture(c)
+          ? json({ detail: "rejected: PRIVATE-CONTENT is not allowed" }, 422)
+          : json({}, 500),
+    );
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+    await worker.stop();
+    expect(terminal?.state).toBe("dead");
+    expect(log.error).toHaveLength(1);
+    expect(log.error[0]).toContain("reason=delivery_failed, status=422");
+    expect(log.error[0]).not.toContain("PRIVATE-CONTENT");
+    expect(log.error[0]).not.toContain("rejected");
+    // The full detail stays in the local ledger for /musubi-status.
+    expect(terminal?.last_error).toContain("422");
+    outbox.close();
+  });
+
+  it("a held durable row reports the lookup status it actually saw", async () => {
+    const outbox = open();
+    const row = outbox.enqueue(item());
+    outbox.freezeRequestBody(row.id, captureRequestBody(row));
+    outbox.markPostAttempted(row.id, "durable");
+    outbox.markFailed(row.id, "network", true, -1_000_000);
+    const { worker } = makeWorker(outbox, (c) =>
+      isLookup(c) ? json({ detail: "Not Found" }, 404) : json({}, 500),
+    );
+    worker.start();
+    await settle();
+    await worker.stop();
+    expect(outbox.row(row.id)?.last_error).toContain(
+      "receipt unsupported after a durable POST attempt",
+    );
     outbox.close();
   });
 
