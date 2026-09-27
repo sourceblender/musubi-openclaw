@@ -28,7 +28,7 @@ export function packPluginForHostTest(repoRoot: string): {
     delete installEnv.npm_config_local_prefix;
     execFileSync(
       "npm",
-      ["install", "--offline", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund"],
+      ["install", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund"],
       { cwd: pluginRoot, env: installEnv, stdio: "pipe" },
     );
     if (!existsSync(join(pluginRoot, "dist/index.js"))) {
