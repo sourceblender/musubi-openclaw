@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,16 +21,17 @@ export function packPluginForHostTest(repoRoot: string): {
     }).trim();
     execFileSync("tar", ["-xzf", join(stage, archive), "-C", stage]);
     const pluginRoot = join(stage, "package");
-    const installEnv = { ...process.env };
-    // A parent `npm test` may export its own project-scoped allowScripts list.
-    // Passing it into this different package makes npm reject the install.
-    delete installEnv.npm_config_allow_scripts;
-    delete installEnv.npm_config_local_prefix;
-    execFileSync(
-      "npm",
-      ["install", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund"],
-      { cwd: pluginRoot, env: installEnv, stdio: "pipe" },
-    );
+    // npm ci already installed the pinned runtime dependencies. Copy only those
+    // into the packed artifact: this models a production install without another
+    // registry round trip or installing the OpenClaw peer into the plugin root.
+    const manifest = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8"));
+    for (const name of Object.keys(manifest.dependencies ?? {})) {
+      const source = join(repoRoot, "node_modules", name);
+      if (!existsSync(source)) throw new Error(`missing installed runtime dependency: ${name}`);
+      const destination = join(pluginRoot, "node_modules", name);
+      mkdirSync(join(destination, ".."), { recursive: true });
+      cpSync(source, destination, { recursive: true });
+    }
     if (!existsSync(join(pluginRoot, "dist/index.js"))) {
       throw new Error("packed plugin is missing dist/index.js; run the build first");
     }
