@@ -3,7 +3,7 @@
   "version": "2.0.11",
   "description": "First-class durable Musubi memory provider for OpenClaw agents.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Eric Mey <ericmey@gmail.com>",
   "homepage": "https://github.com/sourceblender/musubi-openclaw",
   "repository": {
@@ -33,6 +33,7 @@
     "openclaw.plugin.json",
     "README.md",
     "LICENSE",
+    "LICENSE-MIT-LEGACY",
     "CHANGELOG.md"
   ],
   "scripts": {

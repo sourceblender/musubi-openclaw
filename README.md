@@ -179,4 +179,4 @@ and prune deliberately.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE). Earlier MIT-licensed releases retain their original terms; see [LICENSE-MIT-LEGACY](./LICENSE-MIT-LEGACY).
