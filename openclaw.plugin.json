@@ -57,6 +57,11 @@
       "label": "Capture Completed Turns",
       "help": "Durably queue completed OpenClaw turns into Musubi episodic memory."
     },
+    "capture.captureCronSessions": {
+      "label": "Capture Scheduled Runs",
+      "advanced": true,
+      "help": "Also capture OpenClaw cron runs (agent:<id>:cron:...). Off by default: scheduled runs are machine cadence, not lived experience."
+    },
     "capture.skipSessionKeys": {
       "label": "Skipped Capture Sessions",
       "advanced": true,
@@ -156,6 +161,9 @@
             }
           },
           "mirrorOpenClawMemory": {
+            "type": "boolean"
+          },
+          "captureCronSessions": {
             "type": "boolean"
           }
         }

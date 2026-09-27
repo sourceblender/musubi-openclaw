@@ -4,7 +4,8 @@ export type CaptureSkipReason =
   | "event_not_object"
   | "messages_missing"
   | "assistant_missing"
-  | "heartbeat_poll";
+  | "heartbeat_poll"
+  | "cron_session";
 
 export type CaptureDiagnosticsSnapshot = {
   readonly sinceMs: number;
@@ -24,6 +25,7 @@ const SKIP_REASONS: readonly CaptureSkipReason[] = [
   "messages_missing",
   "assistant_missing",
   "heartbeat_poll",
+  "cron_session",
 ];
 
 const PROCESS_CAPTURE_DIAGNOSTICS = Symbol.for("openclaw-musubi.capture-diagnostics.v1");

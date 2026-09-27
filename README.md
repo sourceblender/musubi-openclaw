@@ -105,6 +105,14 @@ placeholders are rejected locally before the provider registers.
 }
 ```
 
+Completed-turn capture skips two kinds of machine cadence by default, each
+counted under its own reason in the capture diagnostics: OpenClaw heartbeat
+polls (`heartbeat_poll`) and scheduled cron runs, any session key of the form
+`agent:<id>:cron:...` (`cron_session`). Set `capture.captureCronSessions: true`
+to capture cron runs. `capture.skipSessionKeys` excludes further sessions by
+glob (`*` is the only wildcard; matching is anchored and case-sensitive), and
+every turn it skips is logged as `session_filtered`.
+
 ## Verify the live contract
 
 These commands re-establish the claims above; the dates in documentation do

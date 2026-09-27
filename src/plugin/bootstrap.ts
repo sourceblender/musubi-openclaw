@@ -13,6 +13,7 @@ import {
   isAgentEndHookRegistered,
   markAgentEndHookRegistered,
 } from "../capture/diagnostics.js";
+import { isCronSessionKey } from "../capture/session-kind.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import { type AuthoredMusubiConfig, type MusubiConfig, MusubiConfigSchema } from "../config.js";
 import { DeliveryController } from "../delivery/controller.js";
@@ -143,6 +144,14 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
     if (!captureEnabled) {
       captureDiagnostics.skip("capture_disabled");
       logCaptureDiagnostic(api, captureDiagnostics, "capture_disabled");
+      return;
+    }
+    // Scheduled runs are machine cadence, like heartbeat polls: skipped by
+    // default, counted as `cron_session`, opt back in with
+    // capture.captureCronSessions.
+    if (config.capture?.captureCronSessions !== true && isCronSessionKey(ctx.sessionKey)) {
+      captureDiagnostics.skip("cron_session");
+      logCaptureDiagnostic(api, captureDiagnostics, "cron_session");
       return;
     }
     const skippedBy = matchingSessionKeyGlob(ctx.sessionKey, config.capture?.skipSessionKeys);
