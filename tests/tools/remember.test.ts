@@ -26,6 +26,7 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     state: "pending",
     object_id: null,
     write_dedup_merge: null,
+    request_body: null,
     ...overrides,
   };
 }

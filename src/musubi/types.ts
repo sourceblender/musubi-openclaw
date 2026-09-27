@@ -38,6 +38,14 @@ export type RequestOptions = {
   /** JSON-serializable body. Object → stringified; primitives → stringified. */
   readonly body?: unknown;
 
+  /**
+   * Pre-serialized JSON body, sent byte-for-byte as `application/json`.
+   * For writes whose idempotency receipt binds the exact request bytes
+   * (see delivery/receipts.ts): the caller freezes the bytes once and
+   * replays them. Mutually exclusive with `body`.
+   */
+  readonly rawBody?: string;
+
   /** Query parameters appended to the URL. Coerced via `String(value)`. */
   readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
 

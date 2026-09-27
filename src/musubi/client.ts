@@ -103,9 +103,13 @@ export class MusubiClient {
       method === "POST" ? (options.idempotencyKey ?? this.#generateIdempotencyKey()) : undefined;
 
     const url = this.#buildUrl(path, options.query);
-    const hasBody = options.body !== undefined;
+    if (options.body !== undefined && options.rawBody !== undefined) {
+      throw new TypeError("MusubiClient.request: pass either body or rawBody, not both");
+    }
+    const hasBody = options.body !== undefined || options.rawBody !== undefined;
     const headers = this.#buildHeaders(requestId, idempotencyKey, hasBody, options.token);
-    const body = hasBody ? JSON.stringify(options.body) : undefined;
+    const body =
+      options.rawBody ?? (options.body !== undefined ? JSON.stringify(options.body) : undefined);
     const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
 
     for (let attempt = 0; ; attempt++) {

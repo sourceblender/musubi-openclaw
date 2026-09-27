@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { assertObjectId } from "../musubi/client.js";
 import { AbortedError, MusubiError, RateLimitError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import type { DeliveryOutbox, DeliveryRow, OutboxHealth } from "./outbox.js";
+import { lookupCaptureReceipt } from "./receipts.js";
 
 export const RECEIPT_TAG_PREFIX = "openclaw:idem-";
 const RECALL_STATES = ["provisional", "matured", "promoted"] as const;
@@ -140,22 +140,49 @@ export class DeliveryWorker {
         agentId: row.agent_id ?? undefined,
         strict: row.agent_id !== null,
       });
+      // The exact bytes of this capture, frozen before the FIRST send and
+      // replayed on every retry. Musubi's receipt binds their digest.
+      const requestBody =
+        row.request_body ?? this.#outbox.freezeRequestBody(row.id, captureRequestBody(row));
       if (row.attempts > 0) {
-        const existing = await this.#findByReceipt(row, presence.token);
-        if (existing) {
-          this.#outbox.markAccepted(row.id, existing);
-          await this.#verify(row, existing, undefined);
+        const receipt = await lookupCaptureReceipt(this.#client, {
+          namespace: row.namespace,
+          idempotencyKey: row.idem_key,
+          body: requestBody,
+          token: presence.token,
+          signal: this.#abortController.signal,
+        });
+        if (receipt.status === "found") {
+          this.#outbox.markAccepted(row.id, receipt.objectId);
+          await this.#verify(row, receipt.objectId, undefined);
           return;
         }
+        if (receipt.status === "in_flight") {
+          throw new TransientDeliveryError("receipt lookup: an earlier attempt is still in flight");
+        }
+        if (receipt.status === "conflict") {
+          // Same Idempotency-Key, different request bytes. Resending cannot
+          // succeed and would never be a replay; this row needs an operator.
+          this.#outbox.markFailed(
+            row.id,
+            "receipt lookup: idempotency key already used with a different request (conflict)",
+            false,
+          );
+          return;
+        }
+        if (receipt.status === "unsupported") {
+          // Server predates the receipt API: fall back to the receipt-tag search.
+          const existing = await this.#findByReceipt(row, presence.token);
+          if (existing) {
+            this.#outbox.markAccepted(row.id, existing);
+            await this.#verify(row, existing, undefined);
+            return;
+          }
+        }
+        // "absent": no committed write. Resending the same bytes is safe.
       }
-      const tags = parseTags(row.tags_json);
       const response = await this.#client.post<CaptureResponse>("/v1/episodic", {
-        body: {
-          namespace: row.namespace,
-          content: row.content ?? "",
-          importance: row.importance,
-          tags: [...tags, `${RECEIPT_TAG_PREFIX}${row.idem_key}`],
-        },
+        rawBody: requestBody,
         idempotencyKey: row.idem_key,
         token: presence.token,
         signal: this.#abortController.signal,
@@ -352,6 +379,20 @@ function storedDedupEvidence(row: DeliveryRow): boolean | undefined {
  * never delivered, never dead-lettered, and pinning the provider `degraded`
  * through `oldestPendingAgeMs` with no operator-visible terminal state.
  */
+/**
+ * Serialise a capture row exactly as every release before the byte freeze
+ * did (same key order), so rows enqueued before the upgrade keep the digest
+ * their first attempt already produced.
+ */
+export function captureRequestBody(row: DeliveryRow): string {
+  return JSON.stringify({
+    namespace: row.namespace,
+    content: row.content ?? "",
+    importance: row.importance,
+    tags: [...parseTags(row.tags_json), `${RECEIPT_TAG_PREFIX}${row.idem_key}`],
+  });
+}
+
 export class TransientDeliveryError extends Error {
   constructor(message: string) {
     super(message);

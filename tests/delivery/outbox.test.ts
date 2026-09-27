@@ -727,6 +727,11 @@ describe("DeliveryWorker failure classification", () => {
   it("accepts a receipt envelope whose limit echo differs from the request", async () => {
     let posts = 0;
     const fetch: FetchLike = async (url, init) => {
+      // A server that predates the receipt API: the lookup route is absent,
+      // so the worker falls back to the receipt-tag search under test here.
+      if (url.includes("/v1/idempotency/receipts/lookup")) {
+        return new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });
+      }
       if (init?.method === "POST" && url.includes("/v1/retrieve")) {
         posts += 1;
         // Server clamped the echo. Not degraded — but demanding `limit === 50`
