@@ -26,6 +26,11 @@ OpenClaw agent turn
 OpenClaw memory_search / memory_get / memory_store
   -> per-agent presence + token resolution
   -> Musubi canonical API
+
+OpenClaw before_prompt_build
+  -> per-agent, bounded Musubi retrieval
+  -> canonical source-date readback
+  -> dated context for this turn only
 ```
 
 The plugin declares `kind: "memory"`, registers
@@ -65,12 +70,14 @@ that lookup is unavailable or degraded, it defers rather than risk a duplicate.
 
 ### Prompt and compaction
 
-The exclusive capability contributes synchronous tool guidance only. It does
-not inject a global remote-result cache because one shared cache could put one
-agent's presence into another agent's prompt. Completed turns are already
-durably queued at `agent_end`, so Musubi does not claim OpenClaw's
-file-oriented pre-compaction flush plan. This is deliberate provider behavior,
-not an omitted sidecar fallback.
+The exclusive capability contributes synchronous tool guidance. A typed
+`before_prompt_build` hook retrieves relevant memory for the current prompt,
+using the requesting agent's presence and token. It injects a bounded,
+source-dated block only into that turn. No process-global result cache can
+put one agent's memory into another's prompt. A missing agent identity,
+retrieval warning, failed date lookup, boundary mismatch, or timeout withholds
+the whole block. Completed turns are already durably queued at `agent_end`,
+so Musubi does not claim OpenClaw's file-oriented pre-compaction flush plan.
 
 ## Degraded behavior
 

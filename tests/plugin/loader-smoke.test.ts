@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("OpenClaw loader acceptance", () => {
-  it("loads Musubi as the selected memory capability through the real 2026.7.1 loader", () => {
+  it("loads Musubi as the selected memory capability through the real 2026.9.4 loader", () => {
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-loader-"));
     roots.push(stateDir);
     const configPath = join(stateDir, "openclaw.json");
@@ -64,6 +64,7 @@ describe("OpenClaw loader acceptance", () => {
     expect(JSON.stringify(parsed)).toContain('"id":"musubi"');
     expect(JSON.stringify(parsed)).toContain('"kind":"memory"');
     expect(JSON.stringify(parsed)).toContain('"agent_end"');
+    expect(JSON.stringify(parsed)).toContain('"before_prompt_build"');
     expect(JSON.stringify(parsed)).not.toMatch(/registration failed|inert|error.*musubi/iu);
 
     // The loader must not mutate authored config during a read-only inspect.

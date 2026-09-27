@@ -20,13 +20,13 @@ describe("current-state documentation and runtime parity", () => {
       openclaw?: { compat?: { pluginApi?: string }; build?: { openclawVersion?: string } };
     };
     expect(manifest.kind).toBe("memory");
-    expect(plugin.kind).toBe("memory");
+    expect(plugin.kind).toBeUndefined();
     expect(manifest.contracts?.tools).toEqual(
       expect.arrayContaining(["memory_search", "memory_get", "memory_store"]),
     );
     expect(pkg.peerDependencies?.openclaw).toBe(">=2026.7.1");
     expect(pkg.openclaw?.compat?.pluginApi).toBe(">=2026.7.1");
-    expect(pkg.openclaw?.build?.openclawVersion).toBe("2026.7.1");
+    expect(pkg.openclaw?.build?.openclawVersion).toBe("2026.9.4");
   });
 
   it("marks the former architecture as historical and indexes the replacement", () => {

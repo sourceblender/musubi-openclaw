@@ -3,7 +3,7 @@
   "name": "Musubi Memory",
   "description": "First-class durable Musubi memory provider for OpenClaw: native recall/store tools, verified episodic capture, and operator-visible delivery health.",
   "kind": "memory",
-  "homepage": "https://github.com/ericmey/openclaw-musubi",
+  "homepage": "https://github.com/sourceblender/musubi-openclaw",
   "author": "Eric Mey",
   "uiHints": {
     "core.baseUrl": {

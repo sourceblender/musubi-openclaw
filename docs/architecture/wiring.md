@@ -5,7 +5,9 @@
 
 Entry point: `src/index.ts` delegates synchronously to
 `registerMusubi(...)` in `src/plugin/bootstrap.ts`.
-The deployment contract selects `plugins.slots.memory = "musubi"`.
+The manifest declares `kind: "memory"`; the deployment contract selects
+`plugins.slots.memory = "musubi"`. The runtime entry does not repeat the
+deprecated `kind` field. OpenClaw 2026.9.4 is the pinned repository host.
 
 ## Registration
 
@@ -31,7 +33,7 @@ authority:
 - lease recovery and delivery worker;
 - deterministic shutdown.
 
-OpenClaw 2026.7.1 can evaluate the plugin once per embedded agent run while
+OpenClaw can evaluate the plugin once per embedded agent run while
 starting services for only the gateway-owned registration. Consequently,
 registration-local controllers are not a valid ownership boundary: an
 `agent_end` handler may belong to a different registration from the service
@@ -53,6 +55,13 @@ durable event without providing the advertised capability. Outbound
 Discovery and validation modes see registration metadata without opening
 sockets or databases. The full host service creates runtime state at start and
 closes it at stop.
+
+External conversation hooks require
+`plugins.entries.musubi.hooks.allowConversationAccess: true`. The
+`before_prompt_build` recall hook also requires prompt injection to remain
+allowed. It performs one bounded read for the requesting agent and appends
+only dated, authorized memory data to that turn; an absent agent id, degraded
+read, boundary mismatch, or timeout injects nothing.
 
 ## Capture ordering
 
@@ -84,7 +93,7 @@ npm run build
 npm test
 ```
 
-On OpenClaw 2026.7.1, CLI bootstrap validates plugin config before the
+On OpenClaw 2026.9.4, CLI bootstrap validates plugin config before the
 `--allow-exec` prepared-secret snapshot is applied, so CLI preview contexts
 (`plugins inspect`, `doctor`, plugin CLI commands) hand the plugin the
 AUTHORED config with token fields still as `SecretRef` objects. As of 2.0.6
@@ -120,8 +129,10 @@ openclaw musubi-doctor --agent vesper
 ```
 
 The loader smoke creates an isolated OpenClaw state/config, selects Musubi in
-the memory slot, loads the built package through the real 2026.7.1 runtime,
-and verifies that the authored config is not mutated.
+the memory slot, loads the built package through the real 2026.9.4 runtime,
+and verifies that the authored config is not mutated. The install smoke starts
+with an empty profile, links the package through the real install CLI, then
+selects Musubi as the memory slot and inspects the live registrations.
 
 The doctor is the end-to-end runtime proof. It uses the provider's durable
 outbox rather than bypassing it with a direct write, verifies canonical readback

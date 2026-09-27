@@ -19,12 +19,14 @@ import { DeliveryController } from "../delivery/controller.js";
 import { formatDoctor, runDeepDoctor } from "../doctor.js";
 import { MusubiClient } from "../musubi/client.js";
 import type { FetchLike } from "../musubi/types.js";
+import { createPromptRecall } from "../retrieval/recall.js";
 import { createGetTool } from "../tools/get.js";
 import { createRecallTool } from "../tools/recall.js";
 import { createRecentTool } from "../tools/recent.js";
 import { createRememberTool } from "../tools/remember.js";
 import { createSearchTool } from "../tools/search.js";
 import { createThinkTool } from "../tools/think.js";
+import { registerPromptRecall } from "./recall-hook.js";
 
 if (!FormatRegistry.Has("uri")) {
   FormatRegistry.Set("uri", (value: string) => {
@@ -92,6 +94,8 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
   });
 
   registerTools(api, client, config, delivery);
+
+  registerPromptRecall(api, createPromptRecall({ client, config, logger: api.logger }));
 
   api.on("agent_end", async (event: unknown, ctx: { agentId?: string; sessionKey?: string }) => {
     captureDiagnostics.observe();
