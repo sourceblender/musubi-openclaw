@@ -100,8 +100,8 @@ export function createPromptRecall(options: CreatePromptRecallOptions): PromptRe
 
     // Source dates. `/v1/retrieve` carries none, and an undated memory from
     // another week reads as current (the 2026-08-07 search incident). Rows
-    // are dated with the same bounded GETs `musubi_search` uses; a row whose
-    // date cannot be established is dropped, never shown undated.
+    // are dated with the same bounded GETs `musubi_search` uses; if any
+    // strong row cannot be dated, nothing is injected.
     let dated: Awaited<ReturnType<typeof withDates>>;
     try {
       dated = await withDates(strong, client, retrieved.presence.token, signal);
@@ -109,9 +109,13 @@ export function createPromptRecall(options: CreatePromptRecallOptions): PromptRe
       return null;
     }
     if (signal?.aborted) return null;
-    const withSourceDate = dated.rows.filter((row) => sourceDate(row) !== undefined);
-    if (withSourceDate.length === 0) return null;
-    return formatRecall(withSourceDate);
+    // All or nothing, for the same reason a degraded retrieve returns null:
+    // showing the rows that happened to date successfully could omit the
+    // one memory that contradicts them. One failed date GET, or one strong
+    // row that came back without a valid source date, withholds the block.
+    if (dated.warnings.length > 0) return null;
+    if (dated.rows.some((row) => sourceDate(row) === undefined)) return null;
+    return formatRecall(dated.rows);
   };
 }
 
