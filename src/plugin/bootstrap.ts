@@ -20,6 +20,10 @@ import { formatDoctor, runDeepDoctor } from "../doctor.js";
 import { MusubiClient } from "../musubi/client.js";
 import type { FetchLike } from "../musubi/types.js";
 import { createPromptRecall } from "../retrieval/recall.js";
+import {
+  createMusubiSearchManager,
+  type OpenClawMemorySearchManager,
+} from "../retrieval/search-manager.js";
 import { createGetTool } from "../tools/get.js";
 import { createRecallTool } from "../tools/recall.js";
 import { createRecentTool } from "../tools/recent.js";
@@ -84,6 +88,16 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
   });
   const delivery = new DeliveryController({ client, config, logger: api.logger });
   const captureDiagnostics = getProcessCaptureDiagnostics();
+  const createSearchManager = createMusubiSearchManager({ client, config, logger: api.logger });
+  const searchManagers = new Map<string, OpenClawMemorySearchManager>();
+
+  const searchManagerForAgent = (agentId: string): OpenClawMemorySearchManager | null => {
+    const existing = searchManagers.get(agentId);
+    if (existing) return existing;
+    const manager = createSearchManager(agentId);
+    if (manager) searchManagers.set(agentId, manager);
+    return manager;
+  };
 
   api.registerMemoryCapability({
     // Musubi captures every completed turn durably at agent_end, so it does not
@@ -93,6 +107,29 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
     // (plugin/recall-hook.ts -> retrieval/recall.ts), never from a global cache
     // that could leak one agent's presence into another agent's prompt.
     promptBuilder: ({ availableTools }) => buildMemoryPrompt(availableTools),
+    runtime: {
+      async getMemorySearchManager({ agentId, purpose }) {
+        const manager = searchManagerForAgent(agentId);
+        return {
+          manager,
+          ...(manager ? {} : { error: `No Musubi identity configured for agent "${agentId}"` }),
+          debug: { backend: "builtin", purpose: purpose ?? "default" },
+        };
+      },
+      resolveMemoryBackendConfig() {
+        return { backend: "builtin" };
+      },
+      async closeMemorySearchManager({ agentId }) {
+        const manager = searchManagers.get(agentId);
+        searchManagers.delete(agentId);
+        await manager?.close?.();
+      },
+      async closeAllMemorySearchManagers() {
+        const managers = [...searchManagers.values()];
+        searchManagers.clear();
+        await Promise.all(managers.map((manager) => manager.close?.()));
+      },
+    },
   });
 
   registerTools(api, client, config, delivery);

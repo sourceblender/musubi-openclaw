@@ -127,6 +127,14 @@ receives materialized token strings; an unresolved SecretRef makes CLI preview
 inert by design. `musubi.doctor` requires `operator.write` because it creates
 and archives a diagnostic memory.
 
+The selected memory capability also supplies OpenClaw's active
+`MemorySearchManager`: host memory searches use Musubi's guarded retrieval and
+canonical object reads. In OpenClaw 2026.9.4, the separate `openclaw memory`
+CLI still constructs the built-in file index directly and can report its
+provider as `openai` even when `plugins.slots.memory` selects Musubi. Use
+`musubi.status` and `musubi.doctor` for Musubi health until that host CLI route
+uses the selected capability.
+
 The loader-backed test runs a built artifact through OpenClaw 2026.9.4 with
 `plugins.slots.memory = "musubi"`; it checks the manifest-owned memory kind,
 exclusive capability, tools, and conversation-hook registration.
