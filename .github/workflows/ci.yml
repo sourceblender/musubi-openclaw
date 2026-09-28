@@ -6,12 +6,17 @@ on:
     paths-ignore:
       - 'CHANGELOG.md'
       - '.release-please-manifest.json'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SECURITY.md'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
   pull_request:
     branches: [main]
 
+# Superseded PR runs are cancelled; every merged main commit keeps its own run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -34,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ["24", "26"]
+        node: ${{ fromJSON(github.event_name == 'push' && '["24"]' || '["24","26"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -49,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ["24", "26"]
+        node: ${{ fromJSON(github.event_name == 'push' && '["24"]' || '["24","26"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -76,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ["24", "26"]
+        node: ${{ fromJSON(github.event_name == 'push' && '["24"]' || '["24","26"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
