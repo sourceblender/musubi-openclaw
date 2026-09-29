@@ -27,7 +27,7 @@ reconstruct **why** — not just what.
 
 ## Related external documentation
 
-- [Musubi v2 architecture](https://github.com/ericmey/musubi/tree/v2/docs/architecture)
+- [Musubi v2 architecture](https://github.com/sourceblender/musubi/tree/v2/docs/architecture)
   — the upstream memory-core design, especially `01-overview/three-planes.md`
   and `07-interfaces/canonical-api.md`.
 - [OpenClaw plugin docs](https://github.com/openclaw/openclaw/tree/main/docs/plugins)
