@@ -31,7 +31,7 @@ body:
       description: Slice issues (or upstream Musubi work) that must merge before this can.
       placeholder: |
         - #N — short description
-        - Upstream: ericmey/musubi#NNN
+        - Upstream: sourceblender/musubi#NNN
   - type: textarea
     id: test-contract
     attributes:

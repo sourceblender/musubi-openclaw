@@ -25,7 +25,7 @@ In scope:
 
 Out of scope (report upstream):
 
-- Vulnerabilities in [Musubi](https://github.com/ericmey/musubi) core — report
+- Vulnerabilities in [Musubi](https://github.com/sourceblender/musubi) core — report
   to that project.
 - Vulnerabilities in [OpenClaw](https://github.com/openclaw/openclaw) itself —
   report to that project.

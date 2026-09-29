@@ -18,7 +18,7 @@ long-term memory plugin (e.g., `memory-lancedb`). None of those see each
 other. A thought captured in voice doesn't show up in chat; a fact the
 user told their Discord-facing agent is invisible to their CLI session.
 
-[Musubi](https://github.com/ericmey/musubi) v2 is a production-grade
+[Musubi](https://github.com/sourceblender/musubi) v2 is a production-grade
 memory plane with three planes (episodic / curated / artifact), a bridge
 concept plane, a lifecycle engine (maturation → synthesis → promotion),
 hybrid retrieval (BGE-M3 + SPLADE++ + rerank), an Obsidian-vault

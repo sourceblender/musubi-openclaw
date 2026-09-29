@@ -26,7 +26,7 @@ npm test
 ```
 
 You'll need a reachable Musubi core for anything beyond unit tests. See the
-[Musubi v2 README](https://github.com/ericmey/musubi) for local setup.
+[Musubi v2 README](https://github.com/sourceblender/musubi) for local setup.
 
 ## Slice-based workflow
 
@@ -42,7 +42,7 @@ To claim a slice, comment on the issue and open a draft PR with the matching
 branch name. When the PR goes green and the test contract passes, request
 review.
 
-This discipline is borrowed from the upstream [Musubi project](https://github.com/ericmey/musubi)
+This discipline is borrowed from the upstream [Musubi project](https://github.com/sourceblender/musubi)
 and scales cleanly from one contributor to many.
 
 ## Commit messages

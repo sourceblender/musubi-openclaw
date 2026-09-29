@@ -40,7 +40,7 @@ penalty, we need push semantics. The transport options are:
 subscription per configured presence.
 
 Behavior is locked in upstream Musubi PR
-[#103](https://github.com/ericmey/musubi/pull/103) and reflected in this
+[#103](https://github.com/sourceblender/musubi/pull/103) and reflected in this
 plugin's [`docs/api-contract.md`](../api-contract.md).
 
 ## Alternatives considered
@@ -134,7 +134,7 @@ Adopted because it:
 
 - Upstream spec: `docs/architecture/07-interfaces/canonical-api.md` §5
   Thoughts → "Thoughts stream (SSE)" and "Consumer expectations".
-- Upstream PR: https://github.com/ericmey/musubi/pull/103
-- Upstream implementation issue: https://github.com/ericmey/musubi/issues/102
+- Upstream PR: https://github.com/sourceblender/musubi/pull/103
+- Upstream implementation issue: https://github.com/sourceblender/musubi/issues/102
 - ADR-0004 (first-class memory provider) — the current integration model this
   transport choice serves. ADR-0001 is historical.
